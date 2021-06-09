@@ -3,11 +3,11 @@ Title: Flow & Mass Cytometry Analysis Pipeline
 Version: 0.1.0
 Authors@R: person("Jim", "Java", email = "priscian@gmail.com", role = c("aut", "cre"))
 Description: Flow & mass cytometry analysis pipeline.
-Depends: R (>= 3.5.0)
+Depends: R (>= 3.5.0), magrittr
 Suggests: knitr, pander, testthat
 Imports: utils, tools, methods,
     pacman, rio,
-    magrittr, rlang, tidyr, tibble, plyr, dplyr, purrr,
+    rlang, tidyr, tibble, plyr, dplyr, purrr,
     stringr, rex,
     flowCore, MEM, flowCL,
     cluster, FlowSOM, uwot, Rtsne, igraph,

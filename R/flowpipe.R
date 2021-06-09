@@ -141,7 +141,11 @@ prepare_fcs_data <- function(
   excluded_transform_channels_re = stringr::regex("time|event_length", ignore_case = TRUE),
   data_dir,
   remove_outliers = TRUE, flowCut... = list(),
-  outfile_prefix = NULL, outfile_suffix = "_pmm", # &c, also possibly 'NULL'
+  barcoding_keys = NULL, # list([file_name_01] = list(key_path = "barcode_key_path", process_key = expression({[...]})), [file_name_02] = [...])
+  barcode_channels_re = stringr::regex("barcode", ignore_case = TRUE),
+  outfile_prefix = expression(outfile_prefix <- rep("", length(x))),
+  outfile_suffix = "_pmm", # &c, also possibly 'NULL'
+  filename_sample_sep = "-",
   ...
 )
 {
@@ -161,12 +165,6 @@ prepare_fcs_data <- function(
   else
     plinth::poly_eval(outfile_suffix)
 
-  augmentedFcsFileNames <- sprintf(paste0("%s", basename(x), "%s.RData"), outfile_prefix, outfile_suffix)
-  augmentedFcsFilePaths <- paste(data_dir, augmentedFcsFileNames, sep = "/")
-
-  if (any(duplicated(augmentedFcsFileNames)))
-    stop("Output filenames must be unique; use an 'outfile_prefix' expression to fix")
-
   #channels_by_sample <- get_channels_by_sample(x) # Or w/ more control:
   get_channels_by_sampleArgs <- list(
     x = x
@@ -179,6 +177,8 @@ prepare_fcs_data <- function(
   ## Placeholder if 'poly_eval(manage_channels)' below invokes nothing:
   col_names <- commonChannels
   plinth::poly_eval(manage_channels)
+  ## Check 'plinth::dataframe(commonChannels, col_names)' for correct removal of pre-processing channels.
+  #browser()
 
   b <- rep(b, length.out = length(x))
 
@@ -229,28 +229,51 @@ prepare_fcs_data <- function(
 
       remove(ff)
 
-      pmm <- find_plus_minus_by_channel(tff, ...)
+      ### Perform debarcoding here.
+      sample_id <- debarcode(tff, barcoding_keys[[x[i]]])
+      table(sample_id) %>% print # Maybe handle things like this better through a 'verbose' argument....
+      ## Remove barcode channels
+      tff <- tff[, stringr::str_detect(flowCore::colnames(tff), pattern = barcode_channels_re, negate = TRUE)]
+      ## Split barcoded samples & remove unassigned "0" events
+      tffs <- flowCore::split(tff, sample_id, flowSet = FALSE) %>% `[[<-`("0", NULL)
 
-      exprs_tff <- flowCore::exprs(tff)
-      attr(exprs_tff, "plus_minus_matrix") <- pmm
-      class(exprs_tff) <- c("pmm", class(exprs_tff))
-      ## This bypasses the type checking on the 'exprs' slot; trick described here:
-      ## https://stat.ethz.ch/R-manual/R-devel/library/methods/html/slot.html
-      attr(tff, "exprs") <- exprs_tff
+      remove(tff)
 
-      if (exists("flowCut_results"))
-        attr(tff, "flowCut_results") <- flowCut_results
+      augmentedFcsFilePaths <- sapply(names(tffs),
+        function(j)
+        {
+          tff <- tffs[[j]]
+          pmm <- find_plus_minus_by_channel(tff, ...)
 
-      augmentedFcsFileName <- augmentedFcsFileNames[i]
-      augmentedFcsFilePath <- augmentedFcsFilePaths[i]
-      cat(sprintf("Saving augmented FCS file as %s...", augmentedFcsFileName)); utils::flush.console()
-      save(tff, file = augmentedFcsFilePath)
-      cat(". Done.", fill = TRUE)
+          exprs_tff <- flowCore::exprs(tff)
+          attr(exprs_tff, "plus_minus_matrix") <- pmm
+          class(exprs_tff) <- c("pmm", class(exprs_tff))
+          ## This bypasses the type checking on the 'exprs' slot; trick described here:
+          ## https://stat.ethz.ch/R-manual/R-devel/library/methods/html/slot.html
+          attr(tff, "exprs") <- exprs_tff
 
-      augmentedFcsFilePath
+          if (exists("flowCut_results"))
+            attr(tff, "flowCut_results") <- flowCut_results
+
+          onlyOneSample <- length(tffs) == 1L
+          augmentedFcsFileName <-
+            sprintf(paste0("%s", basename(x[i]), "%s%s.RData"), outfile_prefix[i], ifelse(onlyOneSample, "", filename_sample_sep %_% j),
+              outfile_suffix)
+          augmentedFcsFilePath <- paste(data_dir, augmentedFcsFileName, sep = "/")
+          cat(sprintf("Saving augmented FCS file as %s...", augmentedFcsFileName)); utils::flush.console()
+          save(tff, file = augmentedFcsFilePath)
+          cat(". Done.", fill = TRUE)
+
+          augmentedFcsFilePath
+        }, simplify = TRUE)
+
+      augmentedFcsFilePaths
     }, simplify = TRUE)
 
-  r
+  if (any(duplicated(r)))
+    warning("Output file paths should be unique; use an 'outfile_prefix' expression to prevent overwriting", immediate. = TRUE)
+
+  r %>% unlist
 }
 
 
@@ -867,6 +890,7 @@ do_differential_expression <- function(
 #' @export
 test_de_contrasts <- function(
   fit,
+  ## A helpful reminder of how to code contrasts: https://rcompanion.org/rcompanion/h_01.html
   contrasts,
   include_other_vars = FALSE
 )
