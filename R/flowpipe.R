@@ -588,7 +588,7 @@ make_initial_clusters <- function(
     importConfigArgs <- utils::modifyList(importConfigArgs, importConfig..., keep.null = TRUE)
 
     ## N.B. Change this to a package file in directory "extdata" when the time comes:
-    ic <- readLines("D:/Users/priscian/my_documents/urmc/2018/studies/flow/flowpipe/importConfig.txt")
+    ic <- readLines(system.file("inst/templates/importConfig.txt", package = "flowpipe"))
     plyr::l_ply(names(importConfigArgs),
       function(a)
       {
