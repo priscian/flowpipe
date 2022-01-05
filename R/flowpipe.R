@@ -1,3 +1,7 @@
+#' @importFrom magrittr %>%
+#' @importFrom tribe %@>% %<@>%
+#' @importFrom plinth %_% cordon is_invalid dataframe
+
 ## http://cytoforum.stanford.edu/viewtopic.php?f=3&t=1026
 ##
 ## 1. Acquisition of raw data (hot off the machine, no additional processing)
@@ -18,15 +22,29 @@ find_plus_minus_by_channel <- function(
   bins = 4, intensity_levels = c("-", "d", "+", "++"),
   zero_threshold = 0.90,
   excluded_channels_re = stringr::regex("time|event_length", ignore_case = TRUE),
+  pmm_channels = NULL,
   multisect... = list(),
+  resample_on_error = 15,
   verbose = TRUE
 )
 {
-  temp <- flowCore::colnames(x); channels <- temp[stringr::str_detect(temp, excluded_channels_re, negate = TRUE)]
+  if (!is.null(resample_on_error)) {
+    if (is.logical(resample_on_error)) {
+      if (resample_on_error) resample_on_error <- 5
+      else resample_on_error <- 1
+    }
+  } else {
+    resample_on_error <- 1
+  }
+
+  channels <- pmm_channels
+  if (is.null(channels))
+    channels <- temp[stringr::str_detect(flowCore::colnames(x), excluded_channels_re, negate = TRUE)]
 
   e <- flowCore::exprs(x)
   colNames <- colnames(e)
-  cutoffs <- list(); i <- 1
+  cutoffs <- list(); starting_random_seed <- NULL
+  i <- 1
   pmm <- plyr::alply(e, 2,
     function(b)
     {
@@ -38,25 +56,119 @@ find_plus_minus_by_channel <- function(
       if (colNames[i] %nin% channels) {
         rr <- rep(NA_integer_, length(b)); names(rr) <- colNames[i]
       } else {
-        #plot(stats::density(b))
-
-        ## If too many zeros, might be a blank channel.
-        if (sum(b == 0) / length(b) < zero_threshold) {
-          multisectArgs <- list(
-            x = b,
-            bins = bins,
-            plot_cutoff = TRUE
-          )
-          multisectArgs <- utils::modifyList(multisectArgs, multisect...)
-          cutoff <- do.call(multisect, multisectArgs)
-
-          r <- Hmisc::cut2(b, cutoff)
-        } else {
-          cutoff <- rep(NA_real_, length(intensity_levels))
+        ## If too many zeros etc., might be a blank channel.
+        if (
+          (sum(b == 0, na.rm = TRUE) / length(b) >= zero_threshold) ||
+          all(is.na(b)) ||
+          isTRUE(all.equal(sd(b), 0))
+        ) {
+          cutoff <- rep(NA_real_, bins - 1)
 
           r <- rep(NA_integer_, length(b))
+        } else {
+          multisectArgs <- list(
+            x = b %>% `attr<-`("main_title", sprintf("%s|%s", sampleName, colNames[i])),
+            bins = bins,
+            plot_cutoff = TRUE,
+            random_seed = 666
+          )
+          multisectArgs <- utils::modifyList(multisectArgs, multisect...)
+
+          if (is.null(starting_random_seed) && !is.null(multisectArgs$random_seed))
+            starting_random_seed <<- multisectArgs$random_seed
+
+          cutoff <- rep(NA_real_, bins - 1) %>%
+            `attr<-`("random_seed", multisectArgs$random_seed)
+
+          j <- 0
+          while (TRUE) {
+            if (j >= resample_on_error) {
+              cat("\nError: Too many restarts"); flush.console()
+              cutoff <- rep(NA_real_, length(bins - 1)) %>%
+                `attr<-`("random_seed", multisectArgs$random_seed)
+
+              break
+            }
+
+            tryCatch({
+              cutoff <- do.call(multisect, multisectArgs)
+
+              ## Try to deal w/ errors resulting from quasi-successful 'multisect()' call.
+              if (any(duplicated(cutoff))) {
+                cat("\n  Warning: Duplicate cutoffs. Resampling..."); flush.console()
+
+                j <- j + 1
+                multisectArgs$random_seed <- attr(cutoff, "random_seed") + 1
+
+                next
+              }
+
+              if (any(cutoff %in% range(b))) {
+                cat("\n  Warning: Cutoff at data boundary. Resampling..."); flush.console()
+
+                j <- j + 1
+                multisectArgs$random_seed <- attr(cutoff, "random_seed") + 1
+
+                next
+              }
+
+              break
+            }, error =
+              function(e)
+              {
+                message("\nError: ", e$message); flush.console()
+
+                j <<- j + 1
+
+                ## Try bumping up random seed & rerunning
+                multisectArgs$random_seed <<- multisectArgs$random_seed + 1
+              }
+            )
+          }
+
+          ## On utter failure of 'multisect()', estimate cutoffs differently
+          if (all(is.na(cutoff))) {
+            ## Use mean as estimate of bisection points; cf. algorithm in file "flowpipe-silhouette.R"
+            cat("\n  Warning: Falling back on mean estimates of cutpoints..."); flush.console()
+
+            d <- stats::dist(b %>% `attributes<-`(NULL))
+
+            cutoff1 <- mean(b, na.rm = TRUE)
+            cutoff2 <- cutoff3 <- NULL
+
+            if (bins != 2) {
+              t1 <- mean(b[b > cutoff1], na.rm = TRUE)
+              if (bins == 3) {
+                cluster <- .bincode(b, sort(c(-Inf, cutoff1, t1, +Inf), decreasing = FALSE))
+                ss <- cluster::silhouette(cluster, d) # Original R code (now in C++): cluster:::silhouette.default.R
+                s1 <- mean(ss[, 3])
+              }
+
+              t2 <- mean(b[b <= cutoff1], na.rm = TRUE)
+              if (bins == 3) {
+                cluster <- .bincode(b, sort(c(-Inf, cutoff1, t2, +Inf), decreasing = FALSE))
+                ss <- cluster::silhouette(cluster, d)
+                s2 <- mean(ss[, 3])
+
+                if (s2 > s1) cutoff2 <- t2
+                else cutoff2 <- t1
+              } else {
+                cutoff2 <- t1; cutoff3 <- t2
+              }
+
+              cutoff <- sort(c(cutoff1, cutoff2, cutoff3), decreasing = FALSE)
+              attr(cutoff, "random_seed") <- multisectArgs$random_seed
+            }
+
+            if (multisectArgs$plot_cutoff) {
+              plot(stats::density(b), main = sprintf("%s|%s", sampleName, colNames[i]), cex.main = 0.8)
+              plinth::vline(sprintf("%.2f", cutoff), abline... = list(col = "red"), text... = list(y = plinth::cp_coords()$y))
+            }
+          }
+
+          r <- Hmisc::cut2(b, cutoff)
         }
-        length(intensity_levels) <- length(cutoff) + 1
+        #length(intensity_levels) <- length(cutoff) + 1
         levels(r) <- intensity_levels
         cutoffs <<- c(cutoffs, list(cutoff))
 
@@ -77,7 +189,7 @@ find_plus_minus_by_channel <- function(
   pmm <- purrr::reduce(pmm, dplyr::bind_cols)
 
   names(cutoffs) <- channels
-  attr(pmm, "cutoffs") <- cutoffs
+  attr(pmm, "cutoffs") <- structure(cutoffs, starting_random_seed = starting_random_seed)
 
   pmm
 }
@@ -87,65 +199,71 @@ find_plus_minus_by_channel <- function(
 
 
 #' @export
-get_channels_by_sample <- function(
-  x,
-  keep_sans_desc = NULL
+get_fcs_expression_subset <- function(
+  x, # Vector of file paths
+  b = 1/150, # asinh transformation parameter: FCM = 1/150, CyTOF = 1/8 (NULL for no transformation)
+  channels_subset = NULL,
+  excluded_transform_channels_re = stringr::regex("time|event_length", ignore_case = TRUE),
+  sample_size = 10000, # 'Inf' for all events
+  seed = 666,
+  channels_by_sample = NULL # "cbs" object
 )
 {
-  l0 <- sapply(seq_along(x),
-    function(i)
-    {
-      ff <- flowCore::read.FCS(x[i], transformation = FALSE, truncate_max_range = FALSE)
-      p <- flowCore::pData(flowCore::parameters(ff))
+  asinhTrans <- flowCore::arcsinhTransform(transformationId = "flowpipe-transformation", a = 1, b = b, c = 0)
 
-      p
+  if (!is.null(seed))
+    set.seed(seed)
+
+  l <- sapply(x,
+    function(a)
+    {
+      ff <- flowCore::read.FCS(a, transformation = FALSE, truncate_max_range = FALSE)
+      if (is.null(channels_subset))
+        channels_subset <- flowCore::colnames(ff)
+      ff <- ff[, channels_subset]
+      tff <- ff
+      if (!is.null(b)) {
+        transformChannels <- flowCore::colnames(ff)[stringr::str_detect(flowCore::colnames(ff),
+          excluded_transform_channels_re, negate = TRUE)]
+        transList <- flowCore::transformList(transformChannels, asinhTrans)
+        tff <- flowCore::transform(ff, transList)
+      }
+      e <- cbind(id = tools::file_path_sans_ext(basename(a)), flowCore::exprs(tff) %>%
+        `[`(sample(NROW(.), pmin(sample_size, NROW(.))), ) %>% plinth::dataframe())
+
+      e
     }, simplify = FALSE)
 
-  l <- l0
-  ## N.B. Use expression 'keep_sans_desc' to make changes to 'l' before continuing.
-  plinth::poly_eval(keep_sans_desc)
+  exprs <- l %>% purrr::reduce(dplyr::bind_rows) %>%
+    dplyr::mutate(id = as.factor(id)) %>%
+    `attr<-`("sample_id_map",
+      structure(.$id %>% plinth::unfactor() %>% unique, .Names = .$id %>% as.numeric %>% unique)) %>%
+    dplyr::mutate(id = id %>% as.numeric)
+  sample_id_map <- attr(exprs, "sample_id_map")
+  exprs <- structure(data.matrix(exprs), sample_id_map = sample_id_map)
 
-  i <- 1
-  d <- c(
-    head(l, 1)[[1]] %>% dplyr::select(name, desc) %>% dplyr::rename(desc01 = desc) %>% list,
-    tail(l, -1)
-  ) %>%
-  purrr::reduce(
-    function(a, b)
-    {
-      i <<- i + 1
-      newName <- sprintf("desc_%02d", i)
+  ## Make a channels name-description map
+  if (!is.null(channels_by_sample)) {
+    attr(exprs, "channels_name_desc_map") <-
+      attr(channels_by_sample, "channels_by_sample_full_desc") %>%
+        (function(o) { structure(o$desc_01, .Names = o$name) })(.)
+  }
 
-      dplyr::full_join(
-        a,
-        dplyr::select(b, name, desc) %>% dplyr::rename(!!newName := desc),
-        by = "name")
-    })
-
-  channelNamesTables <- apply(dplyr::select(d, -name), 1, table)
-  if ((channelNamesTables %>% sapply(length) > 1) %>% any)
-    warning("Some channels may have multiple names among samples")
-
-  structure(d, channel_names_tables = channelNamesTables)
+  exprs
 }
 
 
 ## Create augmented 'flowCore::flowFrame' object files to use for analysis.
-## N.B. Until event sampling is done, we'll be working w/ only 1 file at a time.
 #' @export
-prepare_fcs_data <- function(
+prepare_augmented_fcs_data <- function(
   x, # Vector of file paths
   b = 1/150, # asinh transformation parameter: FCM = 1/150, CyTOF = 1/8 (v. MetaCyto vignette)
-  get_channels_by_sample... = list(),
-  manage_channels = NULL, # A function or 'rlang::expr({})' object
   excluded_transform_channels_re = stringr::regex("time|event_length", ignore_case = TRUE),
+  channels_subset = NULL,
   data_dir,
   remove_outliers = TRUE, flowCut... = list(),
-  barcoding_keys = NULL, # list([file_name_01] = list(key_path = "barcode_key_path", process_key = expression({[...]})), [file_name_02] = [...])
-  barcode_channels_re = stringr::regex("barcode", ignore_case = TRUE),
   outfile_prefix = expression(outfile_prefix <- rep("", length(x))),
   outfile_suffix = "_pmm", # &c, also possibly 'NULL'
-  filename_sample_sep = "-",
   ...
 )
 {
@@ -165,50 +283,15 @@ prepare_fcs_data <- function(
   else
     plinth::poly_eval(outfile_suffix)
 
-  #channels_by_sample <- get_channels_by_sample(x) # Or w/ more control:
-  get_channels_by_sampleArgs <- list(
-    x = x
-  )
-  get_channels_by_sampleArgs <- utils::modifyList(get_channels_by_sampleArgs, get_channels_by_sample..., keep.null = TRUE)
-  channels_by_sample <- do.call(get_channels_by_sample, get_channels_by_sampleArgs)
-  commonChannels <- structure(attr(channels_by_sample, "channel_names_tables") %>% sapply(names), .Names = channels_by_sample$name) %>%
-    purrr::compact() %>% unlist
-
-  ## Placeholder if 'poly_eval(manage_channels)' below invokes nothing:
-  col_names <- commonChannels
-  plinth::poly_eval(manage_channels)
-  ## Check 'plinth::dataframe(commonChannels, col_names)' for correct removal of pre-processing channels.
-  #browser()
-
-  b <- rep(b, length.out = length(x))
+  asinhTrans <- flowCore::arcsinhTransform(transformationId = "flowpipe-transformation", a = 1, b = b, c = 0)
 
   r <- sapply(seq_along(x),
     function(i)
     {
       ff <- flowCore::read.FCS(x[i], transformation = FALSE, truncate_max_range = FALSE)
-
-      ## TODO: Compensation?
-      ## accessing the spillover matrix
-      # try(spillover(frame))
-      # ff <- flowCore::compensate(ff, ff@description$SPILL)
-
-      colNames <- col_names[!is.na(col_names)]
-      if (!is_invalid(missingCols <- setdiff(names(colNames), flowCore::colnames(ff)))) {
-        ## Add missing columns to flowFrame
-        ff <- flowCore::fr_append_cols(
-          ff,
-          structure(
-            matrix(rep(NA_real_, flowCore::nrow(ff) * length(missingCols)), ncol = length(missingCols)),
-            .Dimnames = list(NULL, missingCols)
-          )# %>% head
-        )
-      }
-
-      ## Keep useful non-blank columns
-      ff <- ff[, names(colNames)]; flowCore::colnames(ff) <- colNames
-
-      ## Remove and/or rename channels (probably unnecessary now)
-      p <- flowCore::pData(flowCore::parameters(ff)) # Use 'p' in expression or function
+      if (is.null(channels_subset))
+        channels_subset <- flowCore::colnames(ff)
+      ff <- ff[, channels_subset]
 
       if (remove_outliers) {
         flowCutArgs <- list(
@@ -222,58 +305,43 @@ prepare_fcs_data <- function(
         flowCut_results <- flowCut_results[names(flowCut_results) != "frame"]
       }
 
-      temp <- flowCore::colnames(ff); transformChannels <- temp[stringr::str_detect(temp, excluded_transform_channels_re, negate = TRUE)]
-      asinhTrans <- flowCore::arcsinhTransform(transformationId = "flowpipe-transformation", a = 1, b = b, c = 0)
-      transList <- flowCore::transformList(transformChannels, asinhTrans)
-      tff <- flowCore::transform(ff, transList)
-
+      tff <- ff
+      if (!is.null(b)) {
+        transformChannels <- flowCore::colnames(ff)[stringr::str_detect(flowCore::colnames(ff),
+          excluded_transform_channels_re, negate = TRUE)]
+        transList <- flowCore::transformList(transformChannels, asinhTrans)
+        tff <- flowCore::transform(ff, transList)
+      }
       remove(ff)
 
-      ### Perform debarcoding here.
-      sample_id <- debarcode(tff, barcoding_keys[[x[i]]])
-      table(sample_id) %>% print # Maybe handle things like this better through a 'verbose' argument....
-      ## Remove barcode channels
-      tff <- tff[, stringr::str_detect(flowCore::colnames(tff), pattern = barcode_channels_re, negate = TRUE)]
-      ## Split barcoded samples & remove unassigned "0" events
-      tffs <- flowCore::split(tff, sample_id, flowSet = FALSE) %>% `[[<-`("0", NULL)
+      pmm <- find_plus_minus_by_channel(tff, ...)
 
-      remove(tff)
+      exprs_tff <- flowCore::exprs(tff)
+      attr(exprs_tff, "plus_minus_matrix") <- pmm
+      class(exprs_tff) <- c("pmm", class(exprs_tff))
+      ## This bypasses the type checking on the 'exprs' slot; trick described here:
+      ## https://stat.ethz.ch/R-manual/R-devel/library/methods/html/slot.html
+      attr(tff, "exprs") <- exprs_tff
 
-      augmentedFcsFilePaths <- sapply(names(tffs),
-        function(j)
-        {
-          tff <- tffs[[j]]
-          pmm <- find_plus_minus_by_channel(tff, ...)
+      if (exists("flowCut_results"))
+        attr(tff, "flowCut_results") <- flowCut_results
 
-          exprs_tff <- flowCore::exprs(tff)
-          attr(exprs_tff, "plus_minus_matrix") <- pmm
-          class(exprs_tff) <- c("pmm", class(exprs_tff))
-          ## This bypasses the type checking on the 'exprs' slot; trick described here:
-          ## https://stat.ethz.ch/R-manual/R-devel/library/methods/html/slot.html
-          attr(tff, "exprs") <- exprs_tff
+      augmentedFcsFileName <-
+        sprintf("%s%s%s.RData", outfile_prefix[i], basename(x[i]), outfile_suffix)
+      augmentedFcsFilePath <- paste(data_dir, augmentedFcsFileName, sep = "/")
+      cat(sprintf("Saving augmented FCS file as %s...", augmentedFcsFileName)); utils::flush.console()
+      save(tff, file = augmentedFcsFilePath)
+      cat(". Done.", fill = TRUE)
 
-          if (exists("flowCut_results"))
-            attr(tff, "flowCut_results") <- flowCut_results
-
-          onlyOneSample <- length(tffs) == 1L
-          augmentedFcsFileName <-
-            sprintf(paste0("%s", basename(x[i]), "%s%s.RData"), outfile_prefix[i], ifelse(onlyOneSample, "", filename_sample_sep %_% j),
-              outfile_suffix)
-          augmentedFcsFilePath <- paste(data_dir, augmentedFcsFileName, sep = "/")
-          cat(sprintf("Saving augmented FCS file as %s...", augmentedFcsFileName)); utils::flush.console()
-          save(tff, file = augmentedFcsFilePath)
-          cat(". Done.", fill = TRUE)
-
-          augmentedFcsFilePath
-        }, simplify = TRUE)
-
-      augmentedFcsFilePaths
+      augmentedFcsFilePath
     }, simplify = TRUE)
 
   if (any(duplicated(r)))
     warning("Output file paths should be unique; use an 'outfile_prefix' expression to prevent overwriting", immediate. = TRUE)
 
-  r %>% unlist
+  ret_val <- r
+
+  ret_val
 }
 
 
@@ -298,6 +366,12 @@ prepare_fcs_data <- function(
     attr(y, "cluster_id") <- cluster_id
   }
   class(y) <- class(x)
+
+  ## Transfer unchanged attributes to 'y'
+  uncommonAttributes <- setdiff(names(attributes(x)), names(attributes(y))) %>%
+    `[`(. %nin% c("dim", "dimnames")) # In case of single-column subset
+  plyr::l_ply(uncommonAttributes,
+    function(a) { attr(y, a) <<- attributes(x)[[a]] })
 
   y
 }
@@ -368,6 +442,10 @@ gate <- function(
 
       do.call(visualize_channels, visualize_channelsArgs)
 
+      ## Check whether 'x' has been gated down to zero events:
+      if (is_invalid(x))
+        return ()
+
       x <<- x[with(pmm, plinth::poly_eval(strategy[[a]])), , drop = FALSE]
     })
 
@@ -386,7 +464,7 @@ get_expression_subset <- function(
   gate... = list(), # Preprocess samples individually
   save_plot_fun = grDevices::pdf, save_plot... = list(),
   seed = 666,
-  sample_size = 5000,
+  sample_size = 10000,
   callback = NULL # An expression
 )
 {
@@ -461,6 +539,14 @@ get_expression_subset <- function(
   if (!is_invalid(save_plot...)) {
     dev.off()
     par(def_par)
+
+    ## Convert PDF to PNG
+    suppressWarnings(pdftools::pdf_convert(
+      pdf = save_plotArgs$file,
+      format = "png",
+      dpi = 100,
+      filenames = sprintf("%s.png", tools::file_path_sans_ext(save_plotArgs$file))
+    ))
   }
 
   if (!is.null(callback))
@@ -475,446 +561,4 @@ get_expression_subset <- function(
   class(e) <- class(ss[[1]])
 
   e
-}
-
-
-#' @export
-make_tsne_embedding <- function(
-  x, # "pmm" object from 'get_expression_subset()'
-  channels = TRUE, # Vector of column names otherwise
-  seed = 666,
-  ...
-)
-{
-  set.seed(seed)
-  tsne <- Rtsne::Rtsne(x[, channels, drop = FALSE], ...)
-
-  tsne
-}
-
-## usage:
-# cordon(make_tsne_embedding, perplexity = 30, envir = globalenv(), file_path = paste(data_dir, "flowpipe-test-tsne.RData", sep = "/"), variables = c("tsne"), timestamp... = list(use_seconds = TRUE), action = "save")
-
-
-#' @export
-make_umap_embedding <- function(
-  x, # "pmm" object from 'get_expression_subset()'
-  channels = TRUE, # Vector of column names otherwise
-  n_neighbors = 15, min_dist = 0.2, metric = "euclidean",
-  seed = 666,
-  ...
-)
-{
-  set.seed(seed)
-  umap <- uwot::umap(
-    x[, channels],
-    n_neighbors = n_neighbors,
-    min_dist = min_dist,
-    metric = metric,
-    ...)
-
-  umap
-}
-
-## usage:
-# cordon(make_umap_embedding, n_neighbors = 15, envir = globalenv(), file_path = paste(data_dir, "flowpipe-test-umap.RData", sep = "/"), variables = c("umap"), timestamp... = list(use_seconds = TRUE), action = "save")
-
-
-## Heavily borrowed from 'cytofkit:::FlowSOM_integrate2cytofkit()'
-#' @export
-simple_FlowSOM <- function (xdata, k, flow_seed = NULL, ...)
-{
-  xdata <- as.matrix(xdata)
-
-  cat("Building SOM..."); utils::flush.console()
-
-  ord <- tryCatch({
-    map <- FlowSOM::SOM(xdata, silent = TRUE, ...)
-    cat(". Done.", fill = TRUE)
-    cat("Metaclustering to", k, "clusters..."); utils::flush.console()
-    metaClusters <- suppressMessages(FlowSOM::metaClustering_consensus(map$codes,
-      k = k, seed = flow_seed))
-    cat(". Done.", fill = TRUE)
-    cluster <- metaClusters[map$mapping[, 1]]
-  }, error = function(e) { message("\nError: ", e$message); flush.console(); return (NULL) })
-
-  if (is.null(ord)) {
-    cluster <- NULL
-  } else {
-    if (length(ord) != NROW(xdata)) {
-      message("\nError: FlowSOM failed.")
-
-      return (NULL)
-    }
-    cluster <- ord
-  }
-
-  return (cluster)
-}
-
-
-#' @export
-make_initial_clusters <- function(
-  x, # Matrix, possibly the 'Y' object resulting from 'Rtsne::Rtsne()'
-  channels = TRUE, # Vector of column names otherwise
-  seed = 666,
-  FlowSOM_k = NULL,
-  VorteX_path = "./VorteX.jar",
-  num_nearest_neighbors = 10,
-  Xshift_command = "java -Xmx64G -cp \"%s\" standalone.Xshift -NUM_NEAREST_NEIGHBORS=%d",
-  importConfig... = list(),
-  tol = 1e-5
-)
-{
-  set.seed(seed)
-
-  x <- x[, channels, drop = FALSE]
-
-  if (is.null(FlowSOM_k)) {
-    ### Do X-Shift clustering
-
-    ## X-Shift default arguments
-    importConfigArgs <- list(
-      CLUSTERING_COLUMNS = paste(seq(NCOL(x)), collapse = ","),
-      LIMIT_EVENTS_PER_FILE = -1,
-      TRANSFORMATION = "NONE",
-      SCALING_FACTOR = 1,
-      NOISE_THRESHOLD = 1.0,
-      EUCLIDIAN_LENGTH_THRESHOLD = 0.0,
-      RESCALE = "NONE",
-      QUANTILE = 0.95,
-      RESCALE_SEPARATELY = "false"
-    )
-    importConfigArgs <- utils::modifyList(importConfigArgs, importConfig..., keep.null = TRUE)
-
-    ## N.B. Change this to a package file in directory "extdata" when the time comes:
-    ic <- readLines(system.file("inst/templates/importConfig.txt", package = "flowpipe"))
-    plyr::l_ply(names(importConfigArgs),
-      function(a)
-      {
-        ic <<- stringr::str_replace_all(ic, paste0("%", a, "%"), importConfigArgs[[a]] %>% as.character)
-      })
-
-    ## Set up a temporary workspace
-    d <- tempdir()
-    p <- tempfile(tmpdir = d, fileext = ".fcs")
-
-    ## Create temporary files
-    p1 <- flowCore::write.FCS(flowCore::flowFrame(as.matrix(x)), p)
-    writeLines(ic, paste(d, "importConfig.txt", sep = "/"))
-    writeLines(normalizePath(p1, mustWork = FALSE), paste(d, "fcsFileList.txt", sep = "/"))
-
-    XshiftCommand <- sprintf(Xshift_command, normalizePath(VorteX_path, mustWork = FALSE), num_nearest_neighbors)
-    currentWorkingDir <- getwd()
-    setwd(d)
-    XshiftOutput <- system(XshiftCommand, intern = TRUE)
-    setwd(currentWorkingDir)
-
-    xx <- flowCore::read.FCS(paste(d, "out", basename(p1), sep = "/"))
-
-    ## Are the original & X-Shift expression matrices the same except for some tolerance?
-    if (!(dplyr::near(flowCore::exprs(xx)[, seq(NCOL(xx) - 1)], x, tol = tol) %>% all))
-      warning("Input & X-Shift expression matrices don't match within tolerance")
-
-    cluster_id <- flowCore::exprs(xx)[, "cluster_id"]
-
-    ## This can be plotted;
-    ## Examples here: rstudio-pubs-static.s3.amazonaws.com/362044_903076131972463e8fdfcc00885fc9a6.html
-    cluster_graph <- igraph::read.graph(paste(d, "out", "mst.gml", sep = "/"), format = c("gml"))
-  } else {
-    ## Clusters using FlowSOM.
-    cluster_id <- simple_FlowSOM(xdata = x[, , drop = FALSE], k = FlowSOM_k, flow_seed = seed)
-  }
-
-  cluster_id
-}
-
-## Also see:
-# clusters_pg <- cytofkit::cytof_cluster(xdata = e[, channels, drop = FALSE], method = "Rphenograph")
-## N.B. Might need to remove duplicate rows beforehand!
-
-
-#' @export
-summary.pmm <- function(
-  x, # "pmm" object from 'get_expression_subset()'
-  n = NULL, # Cluster numbers, NULL for all
-  excluded_channels_re = stringr::regex("id|time|event_length", ignore_case = TRUE),
-  overall_label_threshold = 0.95,
-  label_threshold = 0.90,
-  collapse = "",
-  element_names = TRUE,
-  as_list = FALSE
-)
-{
-  if (is.null(attr(x, "cluster_id"))) {
-    attr(x, "cluster_id") <- rep(1, NROW(x))
-    warning("PMM object 'x' has no 'cluster_id' attribute")
-  }
-
-  channels <- colnames(x)[stringr::str_detect(colnames(x), excluded_channels_re, negate = TRUE)]
-  if (is.null(n))
-    n <- attr(x, "cluster_id") %>% unique %>% sort
-
-  pmm <- attr(e, "plus_minus_matrix")[, channels]
-  if (!is.null(overall_label_threshold)) {
-    overall_channels <- (plyr::aaply(pmm, 2, table)/NROW(pmm) > overall_label_threshold) %>% apply(1, any) %>% `!`
-    channels <- names(overall_channels)[overall_channels]
-    if (any(!overall_channels))
-      warning(sprintf("The following channels are overrepresented in all cells: %s",
-        paste(names(overall_channels)[!overall_channels], collapse = " ")))
-  }
-
-  r <- sapply(n,
-    function(i)
-    {
-      e <- x[attr(x, "cluster_id") %in% i, channels, drop = FALSE]
-      pmm <- attr(e, "plus_minus_matrix")
-
-      l <- sapply(colnames(pmm),
-        function(a)
-        {
-          tab <- table(pmm[, a])/NROW(pmm)
-
-          r <- ""
-          if (any(tab >= label_threshold)) {
-            r <- a %_% names(tab)[tab >= label_threshold]
-          }
-        }, simplify = FALSE) %>% unlist
-
-      if (as_list)
-        l
-      else
-        l %>% paste(collapse = collapse)
-    }, simplify = ifelse(as_list, FALSE, TRUE))
-
-  if (is.logical(element_names)) {
-    if (element_names)
-      names(r) <- as.character(n)
-  } else if (is.character(element_names)) {
-    names(r) <- element_names
-  }
-
-  r
-}
-
-## usage:
-# summary(e, excluded_channels_re = excluded_channels_re, label_threshold = 0.90, as_list = FALSE)
-
-
-#' @export
-search <- function(x, ...)
-  UseMethod("search")
-
-
-#' @export
-search.default <- function(x, ...)
-{
-  search(x, ...)
-}
-
-
-#' @export
-search.pmm <- function(
-  x, # "pmm" object from 'get_expression_subset()'
-  query, # Vector of search terms based on channel names
-  query_re = "^(%s)", # RegEx template for search
-  summary... = list(), # Additional arguments to 'summary.pmm()'
-  ids_only = TRUE
-)
-{
-  summaryArgs <- list(
-    x = x,
-    as_list = TRUE
-  )
-  summaryArgs <- utils::modifyList(summaryArgs, summary..., keep.null = TRUE)
-
-  sm <- do.call(summary, summaryArgs)
-
-  r <- sapply(sm,
-    function(a)
-    {
-      re <- stringr::regex(sprintf(query_re, paste(rex::escape(query), collapse = "|")), ignore_case = TRUE)
-      d <- a[stringr::str_detect(a, re)]
-
-      ## Were all the query terms found?
-      if (length(table(d)) == length(query))
-        return (d)
-
-      NULL
-    }, simplify = FALSE) %>% purrr::compact()
-
-  if (is_invalid(r))
-    return (NULL)
-
-  if (ids_only)
-    return (names(r))
-
-  r
-}
-
-## usage:
-# r <- search(e, c("cd45+", "cd3-"), summary... = list(excluded_channels_re = excluded_channels_re, label_threshold = 0.90))
-
-
-#' @export
-merge_clusters <- function(
-  x, # "pmm" object from 'get_expression_subset()'
-  clusters, # Named list of mutually exclusive cell subsets
-  excluded_channels_re,
-  label_threshold,
-  search... = list(),
-  verbose = TRUE,
-  leftover_clusters = NULL
-)
-{
-  searchArgs <- list(
-    x = x
-  )
-  if (!missing(excluded_channels_re))
-    searchArgs$summary...$excluded_channels_re <- excluded_channels_re
-  searchArgs <- utils::modifyList(searchArgs, search..., keep.null = TRUE)
-
-  label_thresholds <- structure(
-    rep(formals(summary.pmm)$label_threshold, length(clusters)),
-    .Names = names(clusters)
-  )
-  if (!missing(label_threshold)) {
-    if (is_invalid(names(label_threshold)))
-      names(label_threshold) <- rep("", length(label_threshold))
-
-    namedThresholds <- label_threshold[names(label_threshold) != ""]
-    if (!is_invalid(namedThresholds))
-      label_thresholds <-
-        replace(label_thresholds, names(namedThresholds), namedThresholds)
-
-    unnamedThresholds <- label_threshold[names(label_threshold) == ""]
-    if (!is_invalid(unnamedThresholds)) {
-      indices <- names(label_thresholds) %nin% names(namedThresholds)
-      label_thresholds[indices] <-
-        rep(unnamedThresholds, length.out = length(label_thresholds[indices]))
-    }
-  }
-
-  cc <- sapply(names(clusters),
-    function(a)
-    {
-      searchArgs$query <- clusters[[a]]
-      searchArgs$summary...$label_threshold <- label_thresholds[a]
-
-      if (verbose) {
-        cat(sprintf("Querying for '%s' clusters at %0.2f threshold...", a,
-          searchArgs$summary...$label_threshold))
-        utils::flush.console()
-      }
-
-      r <- do.call(search, searchArgs)
-
-      if (verbose) {
-        cat(". Done.", fill = TRUE); utils::flush.console()
-      }
-
-      r
-    }, simplify = FALSE)
-
-  cc0 <- cc[sapply(cc, is.null)]
-  if (length(cc0) > 0)
-    warning(sprintf("Clusters %s were not found", cc0 %>% names %>% sQuote %>% paste(collapse = ", ")))
-
-  cc1 <- cc %>% purrr::compact()
-
-  merged_clusters <- list(
-    new_cluster = attr(x, "cluster_id"),
-    orig_cluster = attr(x, "cluster_id")
-  )
-
-  if (is_invalid(cc1)) # No new clusters found
-    return (merged_clusters)
-
-  ## Create 'replace()' arguments
-  replaceArgss <- sapply(names(cc1),
-    function(a)
-    {
-      list(
-        list = attr(x, "cluster_id") %in% cc1[[a]] %>% which,
-        value = a
-      )
-    }, simplify = FALSE)
-
-  new_cluster <- merged_clusters$new_cluster
-  plyr::l_ply(replaceArgss,
-    function(a) new_cluster <<- replace(new_cluster, a$list, a$value))
-
-  if (!is.null(leftover_clusters)) local({
-    i <- sapply(replaceArgss, function(a) a$list, simplify = FALSE) %>% unlist %>% as.vector
-    leftovers_list <- rep(TRUE, length(new_cluster))
-    leftovers_list[i] <- FALSE
-
-    new_cluster <<- replace(new_cluster, leftovers_list, leftover_clusters)
-  })
-
-  merged_clusters$new_cluster <- new_cluster
-
-  merged_clusters
-}
-
-### Differential expression
-
-#' @export
-do_differential_expression <- function(
-  x, # "pmm" object from 'get_expression_subset()'
-  m, # metadata data frame
-  model_formula,
-  id_map_re = ".*",
-  metadata_id_var = "id"
-)
-{
-  id_map <- structure(attr(x, "id_map"),
-    .Names = names(attr(x, "id_map")) %>% basename %>% stringr::str_extract(id_map_re))
-  ids <- names(id_map)[x[, "id"]]
-  clusters <- attr(x, "cluster_id")
-  cell_counts <- table(clusters, ids)
-  ## Convert to percentages if samples are of uneven sizes
-  cell_counts_percent <- (cell_counts /
-    matrix(rep(table(ids), NROW(cell_counts)), nrow = NROW(cell_counts), byrow = TRUE)) * 100
-
-  dge <- edgeR::DGEList(cell_counts_percent, lib.size = table(ids))
-  design <- stats::model.matrix(model_formula,
-    data = metadata %>% dplyr::full_join(structure(dataframe(rownames(dge$samples)), .Names = metadata_id_var), .))
-  y <- edgeR::estimateDisp(dge, design)
-  fit <- edgeR::glmQLFit(y, design, robust = TRUE)
-
-  fit
-}
-
-
-#' @export
-test_de_contrasts <- function(
-  fit,
-  ## A helpful reminder of how to code contrasts: https://rcompanion.org/rcompanion/h_01.html
-  contrasts,
-  include_other_vars = FALSE
-)
-{
-  if (is.logical(include_other_vars) && include_other_vars) {
-    ov <-
-      setdiff(colnames(fit$design)[stringr::str_detect(colnames(fit$design), "(Intercept)", negate = TRUE)], names(contrasts))
-    contrasts <- utils::modifyList(
-      contrasts,
-      structure(as.list(ov), .Names = ov)
-    )
-  }
-
-  res <- contrasts %>% plyr::llply(
-    function(a, b)
-    {
-      glmQLFTestArgs <- utils::modifyList(
-        list(glmfit = fit),
-        structure(list(a), .Names = ifelse(is.matrix(a), "contrast", "coef")),
-        keep.null = TRUE)
-      do.call(edgeR::glmQLFTest, glmQLFTestArgs)
-    })
-
-  res_sig <- plyr::llply(res, function(a) a %>% edgeR::topTags(Inf) %>% as.data.frame %>% dplyr::filter(FDR < 0.05))
-
-  res_sig
 }

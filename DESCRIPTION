@@ -1,19 +1,21 @@
 Package: flowpipe
 Title: Flow & Mass Cytometry Analysis Pipeline
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: person("Jim", "Java", email = "priscian@gmail.com", role = c("aut", "cre"))
 Description: Flow & mass cytometry analysis pipeline.
-Depends: R (>= 3.5.0), magrittr
+Depends: R (>= 3.5.0), magrittr, tribe
 Suggests: knitr, pander, testthat
-Imports: utils, tools, methods,
-    pacman, rio,
-    rlang, tidyr, tibble, plyr, dplyr, purrr,
-    stringr, rex,
-    flowCore, MEM, flowCL,
-    cluster, FlowSOM, uwot, Rtsne, igraph,
-    graphics, grDevices, gplots, ggplot2, cowplot, RColorBrewer, scales, randomcoloR,
-    matrixStats, MASS, edgeR, Hmisc
-Remotes: github::priscian/flowpipe, github::priscian/plinth, github::ropenscilabs/dirdf
+Imports: utils, tools, methods, tictoc,
+  pacman, fs, rio,
+  rlang, tidyr, tibble, plyr, dplyr, purrr, rrapply,
+  forcats,
+  stringr, rex,
+  flowCore, flowStats, MEM, flowCL, CATALYST, premessa, cydar, cytofkit,
+  ConsensusClusterPlus, cluster, FlowSOM, uwot, Rtsne, igraph,
+  graphics, grDevices, gplots, ggplot2, cowplot, RColorBrewer, scales, randomcoloR,
+    pdftools, magick,
+  matrixStats, MASS, edgeR, Hmisc
+Remotes: github::priscian/flowpipe, github::priscian/plinth, github::priscian/debarcode
 License: Artistic-2.0
 Encoding: UTF-8
 LazyData: true

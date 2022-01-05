@@ -161,7 +161,7 @@ multisect <- function(
   use_baseline = TRUE,
   plot_cutoff = FALSE,
   random_seed = NULL,
-  resample_on_error = 10,
+  resample_on_error = 5,
   ...
 )
 {
@@ -180,18 +180,28 @@ multisect <- function(
 
   ## Make sure there are enough random seeds for all possible failures.
   if (is.null(random_seed)) {
-    random_seed <- 666 + seq(from = 0, length.out = resample_on_error)
+    random_seed <- 666 + seq(from = 0, length.out = resample_on_error + 1)
   } else {
-    length(random_seed) <- resample_on_error
+    length(random_seed) <- resample_on_error + 1
     random_seed[is.na(random_seed)] <- max(random_seed, na.rm = TRUE) + seq(sum(is.na(random_seed)))
   }
 
-  i <- 1
+  i <- 0
   run_multisect <- function()
   {
     while (TRUE) {
       withRestarts({
-        set.seed(random_seed[i])
+        if (i >= resample_on_error) {
+          cat("\nError: Too many restarts"); flush.console()
+
+          r <- rep(NA_real_, bins - 1) %>%
+            `attr<-`("random_seed", random_seed[i])
+
+          break
+        }
+
+        set.seed(random_seed[i + 1])
+
         if (length(x) > max_sample) y <- sample(x, max_sample)
         else y <- x
 
@@ -225,24 +235,19 @@ multisect <- function(
         }
 
         r <- sort(c(cutoff1, cutoff2, cutoff3), decreasing = FALSE)
-        attr(r, "random_seed") <- random_seed[i]
+        attr(r, "random_seed") <- random_seed[i + 1]
 
         if (plot_cutoff) {
-          ## I'll need to jazz this up so I can check the flow data w/ file name & channel.
-          plot(stats::density(z))
+          plot(stats::density(z), main = attr(x, "main_title"), cex.main = 0.8)
           plinth::vline(sprintf("%.2f", r), abline... = list(col = "red"), text... = list(y = plinth::cp_coords()$y))
         }
 
         break
       },
         restart = function() {
-          use_baseline <<- !use_baseline; if (!use_baseline) return ()
-          i <<- i + 1
+          use_baseline <<- !use_baseline
 
-          ## N.B. I need to check i's value here & return NAs if necessary.
-          if (i > resample_on_error) {
-            browser()
-          }
+          i <<- i + 1
         })
     }
 
@@ -255,12 +260,13 @@ multisect <- function(
         r <- run_multisect()
       },
         error = function(e) {
-          #message("\nError: ", e$message); flush.console()
           if (any(grepl("must be a finite number", e$message, fixed = TRUE))) {
             cat("\n  Warning: Possibly insufficient positive events. Resampling..."); flush.console()
-
-            invokeRestart("restart")
+          } else {
+            cat(sprintf("\n  Warning: %s. Resampling...", e$message)); flush.console()
           }
+
+          invokeRestart("restart")
         }
     )
   }, error = function(e) { message("\nError: ", e$message); flush.console() })
