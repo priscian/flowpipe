@@ -1,6 +1,7 @@
 #' @importFrom magrittr %>%
 #' @importFrom tribe %@>% %<@>%
-#' @importFrom plinth %_% cordon is_invalid dataframe
+#' @importFrom plinth %_% cordon is_invalid dataframe %nin%
+#' @importFrom magrittr %>%
 
 ## http://cytoforum.stanford.edu/viewtopic.php?f=3&t=1026
 ##
