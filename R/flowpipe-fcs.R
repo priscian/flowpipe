@@ -18,6 +18,16 @@ get_channels_by_sample <- function(
       p
     }, simplify = FALSE)
 
+  ## Are all the channels given in the same order? If no, 'flowCore::read.flowSet()' might fail.
+  ## Decide yes or no by transitivity of equality.
+  commonChannelOrder <- sapply(l0, function(a){ a$name }, simplify = FALSE) %>% {
+    flit <- .
+    seq(length(flit)) %>% utils::combn(m = 2) %>% plinth::dataframe() %>% as.list %>%
+      sapply(function(b) { all(flit[[b[1]]] == flit[[b[2]]]) }) %>% all
+  }
+  if (!commonChannelOrder)
+    warning("Some samples have their channels ordered differently from the other samples.", immediate. = TRUE)
+
   l <- rlang::duplicate(l0, shallow = FALSE)
   ## N.B. Use expression 'keep_sans_desc' to make changes to 'l' before continuing.
   plinth::poly_eval(keep_sans_desc)
@@ -137,7 +147,7 @@ append_fcs_blank_cols <- function(
 
 
 ## In-situ reshuffling of FCS columns to a common order
-## (Slightly time-consuming, but keeps 'flowCore::read.flowSet' from failing)
+## (Slightly time-consuming, but keeps 'flowCore::read.flowSet()' from failing)
 #' @export
 reorder_fcs_common_columns <- function(
   x, # Vector of file paths
@@ -263,4 +273,102 @@ rename_fcs_parameters_name_desc <- function(
   }
 
   pp
+}
+
+
+#' @export
+split_pmm_by_cluster <- function(
+  l, # Named list of "pmm" objects from 'get_expression_subset()'
+  fcs_dir = NULL,
+  export_id_map = FALSE,
+  default_colname = "orig",
+  ...
+)
+{
+  lfs <- sapply(names(l),
+    function(a)
+    {
+      ## Split "pmm" matrix into multiple 'flowCore::flowFrames' by cluster
+      cid <- attr(l[[a]], "cluster_id")
+      if (is.null(cid))
+        stop("PMM object has no 'cluster_id' attribute")
+
+      eff <- flowCore::flowFrame(exprs = l[[a]] %>% unclass)
+      #p <- flowCore::pData(flowCore::parameters(eff))
+
+      if (!is.matrix(cid))
+        cid <- structure(as.matrix(cid), .Dimnames = list(NULL, default_colname))
+
+      fs <- sapply(colnames(cid),
+        function(bc)
+        {
+          b <- cid[, bc]
+          lff <- flowCore::split(eff[!is.na(b), ], b[!is.na(b)])
+
+          if (!is.null(fcs_dir)) {
+            plyr::l_ply(seq_along(lff),
+              function(bb)
+              {
+                fcs_path <-
+                  paste(fcs_dir, a, fs::path_sanitize(paste0(paste(bc, names(lff)[[bb]], sep = "#"), ".fcs"), "_"), sep = "/")
+                attr(lff[[bb]], "fcs_path") <<- fcs_path
+                flowCore::keyword(lff[[bb]]) <<- list(`$FIL` = basename(fcs_path))
+              })
+          }
+          ## Check:
+          # sapply(lff, function(x) { attr(x, "fcs_path") })
+
+          lff
+        }, simplify = FALSE)
+
+      if (export_id_map) {
+        export_id_map(
+          x = l[[a]],
+          export_path = paste(fcs_dir, a, a %_% "-id-map.xlsx", sep = "/")
+        )
+      }
+
+      fs
+    }, simplify = FALSE)
+  ## Check:
+  # rrapply::rrapply(lfs, f = function(x, .xname, .xparents) { attr(x, "fcs_path") }, class = "flowFrame", how = "replace")
+
+  if (!is.null(fcs_dir)) {
+    fcs_paths <- rrapply::rrapply(lfs,
+      f = function(x, .xname, .xparents)
+      {
+        fcs_path <- attr(x, "fcs_path")
+
+        if (!dir.exists(dirname(fcs_path)))
+          dir.create(dirname(fcs_path), recursive = TRUE)
+
+        flowCore::write.FCS(x, fcs_path, ...)
+
+        fcs_path
+      }, class = "flowFrame", how = "flatten")
+  }
+
+  lfs
+}
+
+
+#' @export
+export_id_map <- function(
+  x, # "pmm" object from 'get_expression_subset()'
+  export_path
+)
+{
+  d <- plinth::dataframe(
+    id = attr(x, "id_map") %>% as.vector,
+    file = attr(x, "id_map") %>% names %>% basename %>% tools::file_path_sans_ext()
+  )
+
+  if (!missing(export_path)) {
+    if (!dir.exists(dirname(export_path)))
+      dir.create(dirname(export_path), recursive = TRUE)
+
+    rio::export(d, export_path, overwrite = TRUE)
+  }
+
+  d
 }

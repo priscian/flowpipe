@@ -296,8 +296,9 @@ plot_common_umap_viz_single <- function(
   if (is.matrix(cluster_id)) {
     cluster_id <- cluster_id[, which_cluster_set]
   }
-  sample_id_map <- structure(attr(x, "id_map"),
-    .Names = names(attr(x, "id_map")) %>% basename %>% stringr::str_extract(sample_name_re))
+  # sample_id_map <- structure(attr(x, "id_map"),
+  #   .Names = names(attr(x, "id_map")) %>% basename %>% stringr::str_extract(sample_name_re))
+  sample_id_map <- make_sample_id_map(x, sample_name_re)
   sample_id <- names(sample_id_map)[x[, "id"]]
   d <- plinth::dataframe(UMAP1 = umap[, 1], UMAP2 = umap[, 2], x[, channels],
     cluster_id = cluster_id %>% as.factor,
@@ -544,7 +545,8 @@ plot_cell_counts <- function(
       flowCore::exprs(e$tff) %>% NROW
     }, simplify = TRUE)
   cell_counts <- cellCounts
-  names(cell_counts) <- tools::file_path_sans_ext(basename(names(cell_counts))) %>% stringr::str_extract(sample_name_re)
+  names(cell_counts) <- tools::file_path_sans_ext(basename(names(cell_counts))) %>%
+    stringr::str_extract(sample_name_re) %>% rename_duplicates
 
   ggdf <- plinth::dataframe(sample_id = names(cell_counts), cell_counts = as.numeric(cell_counts))
   ## Add metadata info to 'ggdf'
@@ -553,7 +555,7 @@ plot_cell_counts <- function(
   tge <- structure(
     attr(x, "total_gated_events"),
     .Names = tools::file_path_sans_ext(basename(names(attr(x, "total_gated_events")))) %>%
-      stringr::str_extract(sample_name_re)
+      stringr::str_extract(sample_name_re) %>% rename_duplicates
   )
   ggdf <- dplyr::left_join(
     ggdf,
@@ -683,6 +685,11 @@ plot_heatmaps_single <- function(
   if (any(dim(cluster_matrix) < 2))
     return (cluster_matrix)
 
+  nr <- dim(cluster_matrix)[2]
+  nc <- dim(cluster_matrix)[1]
+  cexRow <- min(0.2 + 1/log10(nr), 1.0)
+  cexCol <- min(0.2 + 1/log10(nc), 1.0)
+
   g5_expr <- expression({
     gplots::heatmap.2(
       t(cluster_matrix),
@@ -692,7 +699,8 @@ plot_heatmaps_single <- function(
       colsep = c(1:NCOL(t(cluster_matrix))),
       rowsep = c(1:NROW(t(cluster_matrix))),
       xlab = "cluster", ylab = "channel", scale = scale_,
-      margins = c(15, 10) # Increase these to give more room to col & row labels, respectively
+      margins = c(15, 10), # Increase these to give more room to col & row labels, respectively
+      cexRow = cexRow, cexCol = cexCol
     )
   })
 
@@ -785,6 +793,7 @@ plot_differential_abundance_single <- function(
   which_cluster_set = 1, # If 'attr(x, "cluster_id")' is matrix, pick a column by name or number
   alpha = 0.05,
   sample_name_re = "^.*$",
+  results_column = "logFC",
   plot_palette = randomcoloR::distinctColorPalette,
   na.value = scales::alpha("grey95", 0.3), # Default is "grey50"; NA for transparent
   labels = ~ (function(x) { ifelse(is.na(x), "other", x) })(.x),
@@ -810,18 +819,20 @@ plot_differential_abundance_single <- function(
     cluster_id <- cluster_id[, which_cluster_set] %>% drop
   cluster_id <- cluster_id  %>% as.character
 
-  id_map <- structure(attr(x, "id_map"),
-    .Names = names(attr(x, "id_map")) %>% basename %>% stringr::str_extract(sample_name_re))
+  results_column <-
+    structure(rep(results_column, length.out = length(contrasts)), .Names = names(contrasts))
+
+  id_map <- make_sample_id_map(x, sample_name_re)
   ids <- names(id_map)[x[, "id"]]
   m1 <- m %>% dplyr::select(1, group) %>%
     dplyr::rename(id = 1)
-  u <- sapply(contrasts,
+  u <- sapply(names(contrasts),
     function(a)
     {
-      a <- plinth::poly_eval(a)
+      contrasts_a <- plinth::poly_eval(contrasts[[a]])
       glmQLFTestArgs <- utils::modifyList(
         list(glmfit = fit),
-        structure(list(a), .Names = ifelse(is.matrix(a), "contrast", "coef")),
+        structure(list(contrasts_a), .Names = ifelse(is.matrix(contrasts_a), "contrast", "coef")),
         keep.null = TRUE)
 
       res_tags <- do.call(edgeR::glmQLFTest, glmQLFTestArgs) %>%
@@ -829,11 +840,15 @@ plot_differential_abundance_single <- function(
         as.data.frame %>%
         tibble::rownames_to_column("cluster_id")
 
+      rc <- results_column[a] %>% as.vector
+      if (is.numeric(rc))
+        rc <- colnames(res_tags)[rc]
+
       diffexp_df <- structure(plinth::dataframe(cluster_id, umap),
         .Names = c("cluster_id", paste0("UMAP", seq(NCOL(umap))))) %>%
-        dplyr::left_join(res_tags %>% dplyr::select(cluster_id, logFC, FDR),
+        dplyr::left_join(res_tags %>% dplyr::select(cluster_id, !!rc, FDR),
           by = "cluster_id") %>%
-        dplyr::rename(cluster = "cluster_id") %>%
+        dplyr::rename(cluster = "cluster_id", "logFC" := rc) %>%
         dplyr::mutate(id = ids) %>%
         dplyr::left_join(m1, by = "id") %>%
         dplyr::mutate(
@@ -862,13 +877,13 @@ plot_differential_abundance_single <- function(
       ggplot2::geom_point(size = 0.8) + # default: 'shape = 16'
       cowplot::theme_cowplot() +
       ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(alpha = 1, size = 1), ncol = 2)) +
-      ggplot2::ggtitle(sprintf("%s significant clusters", a)) +
+      ggplot2::ggtitle(sprintf("%s significant clusters", a), subtitle = sprintf("coef: %s", rc)) +
       ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)) -> p1
 
       p2 <- ggplot2::ggplot(diffexp_df, ggplot2::aes(x = UMAP1, y = UMAP2, color = logFC)) +
         ggplot2::geom_point(alpha = 0.4, size = 0.8) + # default: 'shape = 16'
         ggplot2::scale_colour_gradient2(low = "blue", mid = "gray", high = "red", na.value = na.value) +
-        ggplot2::ggtitle(sprintf("%s log2 fold change", a)) +
+        ggplot2::ggtitle(sprintf("%s log2 fold change", a), subtitle = sprintf("coef: %s", rc)) +
         cowplot::theme_cowplot() +
         ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5))
 

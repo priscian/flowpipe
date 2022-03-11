@@ -10,17 +10,19 @@ do_differential_expression_single <- function(
   glmQLFit... = list()
 )
 {
-  id_map <- structure(attr(x, "id_map"),
-    .Names = names(attr(x, "id_map")) %>% basename %>% stringr::str_extract(id_map_re))
+  # id_map <- structure(attr(x, "id_map"),
+  #   .Names = names(attr(x, "id_map")) %>% basename %>% stringr::str_extract(id_map_re))
+  id_map <- make_sample_id_map(x, id_map_re)
   ids <- names(id_map)[x[, "id"]]
 
   clusterId <- attr(x, "cluster_id")
   if (is.matrix(clusterId))
     clusterId <- clusterId[, which_cluster_set] %>% drop
 
-  ## Ignore events not associated w/ any cluster:
-  ids <- ids[!is.na(clusterId)]
-  clusterId <- clusterId[!is.na(clusterId)]
+  ## Ignore events not associated w/ any cluster or whose sample isn't in the metadata:
+  keepEvents <- !is.na(clusterId) & ids %in% unique(m$id)
+  ids <- ids[keepEvents]
+  clusterId <- clusterId[keepEvents]
 
   cell_counts <- table(clusterId, ids)
   ## Convert to percentages if samples are of uneven sizes (i.e. assume always)
@@ -78,6 +80,10 @@ do_differential_expression <- function(
 test_contrasts_single <- function(
   fit,
   ## A helpful reminder of how to code contrasts: https://rcompanion.org/rcompanion/h_01.html
+  ## https://rstudio-pubs-static.s3.amazonaws.com/79395_b07ae39ce8124a5c873bd46d6075c137.html
+  ## For interactions, the latter w/ continuous variables, see:
+  ##   http://bioconductor.org/packages/3.12/bioc/vignettes/edgeR/inst/doc/edgeRUsersGuide.pdf
+  ##   https://support.bioconductor.org/p/87252/
   contrasts,
   include_other_vars = FALSE,
   alpha = 0.05

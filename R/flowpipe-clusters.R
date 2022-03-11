@@ -326,10 +326,6 @@ summary.pmm <- function(
   byEvent <- FALSE
   if (is.logical(n)) {
     if (!n) {
-      # if (!is.null(attr(x, "cluster_id"))) {
-      #   clusterId <- sprintf("%d", seq(NROW(x)))
-      # }
-
       byEvent <- TRUE
     }
 
@@ -344,8 +340,11 @@ summary.pmm <- function(
   if (is.matrix(clusterId))
     clusterId <- clusterId[, which_cluster_set] %>% drop
 
-  if (is.null(n))
-    n <- clusterId %>% unique %>% sort
+  if (is.null(n)) {
+    n <- clusterId %>% unique # But don't sort, because character-numbers don't stay in numeric order
+    if (!byEvent)
+      n <- n %>% sort
+  }
 
   pmm <- attr(x, "plus_minus_matrix")[, channels]
   if (!is.null(overall_label_threshold)) {
@@ -476,14 +475,17 @@ search.pmm <- function(
   r <- sapply(sm,
     function(a)
     {
-      test <- sapply(names(a), function(b) { if (all(a[[b]] == "")) return (NULL); paste0(b, a[[b]]) }) %>%
+      test <- sapply(names(a), function(b) { if (all(a[[b]] == "")) return (NULL); paste0(b, a[[b]]) }, simplify = FALSE) %>%
         unlist(use.names = FALSE)
-      re <- stringr::regex(sprintf(query_re, paste(rex::escape(query), collapse = "|")), ignore_case = TRUE)
-      d <- stringr::str_subset(test, re)
+      ## This produces a list whose elements have >1-length vectors for each either-or query:
+      baseQuery <- stringr::str_split(query, stringr::fixed("||", TRUE))
+      re <- sapply(baseQuery, function(b) { stringr::regex(sprintf(query_re, paste(rex::escape(b %>% unlist), collapse = "|")), ignore_case = TRUE) }, simplify = FALSE)
+      d <- sapply(re, function(b) stringr::str_subset(test, b), simplify = FALSE)
 
       ## Were all the query terms found?
-      if (length(table(d)) == length(query))
-        return (d)
+      if (length(sapply(d, table, simplify = FALSE) %>% purrr::compact()) == length(baseQuery))
+      ## If yes, return all those query terms that were found
+        { return (d %>% unlist) }
 
       NULL
     }, simplify = FALSE) %>% purrr::compact()
@@ -599,8 +601,12 @@ merge_clusters <- function(
     orig_cluster_id = origClusterId
   )
 
-  if (is_invalid(cc1)) # No new clusters found
+  if (is_invalid(cc1)) { # No new clusters found
+    if (byEvent)
+      merged_clusters <- list(new_cluster_id = origClusterId, orig_cluster_id = origClusterId)
+
     return (merged_clusters)
+  }
 
   ## Create 'replace()' arguments
   replaceArgss <- sapply(names(cc1),

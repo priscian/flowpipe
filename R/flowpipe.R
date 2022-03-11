@@ -39,7 +39,7 @@ find_plus_minus_by_channel <- function(
 
   channels <- pmm_channels
   if (is.null(channels))
-    channels <- temp[stringr::str_detect(flowCore::colnames(x), excluded_channels_re, negate = TRUE)]
+    channels <- stringr::str_subset(flowCore::colnames(x), excluded_channels_re, negate = TRUE)
 
   e <- flowCore::exprs(x)
   colNames <- colnames(e)
@@ -468,6 +468,9 @@ get_expression_subset <- function(
   callback = NULL # An expression
 )
 {
+  if (length(gate...) == 0L)
+    save_plot... <- NULL
+
   if (!is_invalid(save_plot...)) { # Save gating sequences to PDF
     def_par <- par(no.readonly = TRUE)
 
@@ -561,4 +564,46 @@ get_expression_subset <- function(
   class(e) <- class(ss[[1]])
 
   e
+}
+
+
+#' @export
+rename_duplicates <- function(
+  x, # Character vector
+  fmt = "%s-%02d"
+)
+{
+  if (any(duplicated(x))) {
+    duplicateNames <- x %>% intersect(.[duplicated(.)])
+    for(i in duplicateNames) {
+      dupIndex <- which(x == i)
+      ## Replace w/ sequential numbers:
+      x[dupIndex] <- sapply(seq_along(dupIndex), function(j) sprintf(fmt, x[dupIndex[j]], j))
+    }
+  }
+
+  x
+}
+
+
+#' @export
+make_sample_id_map <- function(
+  x, # Expression matrix of class "pmm"
+  re, # Regular expression or vector of IDs the same length as 'attr(x, "id_map")'
+  rename_dups = TRUE,
+  ...
+)
+{
+  sample_id_map <- attr(x, "id_map")
+  if (length(re) == length(sample_id_map))
+    mapNames <- re
+  else
+    mapNames <- names(sample_id_map) %>% basename %>% stringr::str_extract(re[1])
+
+  if (rename_dups)
+    mapNames <- rename_duplicates(mapNames, ...)
+
+  names(sample_id_map) <- mapNames
+
+  sample_id_map
 }

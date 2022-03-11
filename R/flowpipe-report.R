@@ -43,7 +43,7 @@ summarize_all_clusters_single <- function(
   if (is.matrix(clusterId))
     clusterId <- clusterId[, which_cluster_set] %>% drop
   ## 'na.omit()' for when the cluster assignments incl. NAs:
-  clusterId <- na.omit(clusterId) %>% unique
+  clusterId <- na.omit(clusterId) %>% as.vector %>% unique
 
   rr <- sapply(clusterId,
     function(a)
@@ -192,6 +192,9 @@ r"---{\documentclass{article}
 )
 {
   l <- sprintf(docTemplate, x)
+
+  if (!dir.exists(dirname(file_path)))
+    dir.create(dirname(file_path), recursive = TRUE)
 
   writeLines(l, con = file_path)
 }
