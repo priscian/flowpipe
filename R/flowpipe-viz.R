@@ -38,7 +38,8 @@ plot_channel_densities_by_sample <- function(
   ## This one still works, but is slower:
   #ffn <- basename(x[e[, "id"] %>% as.vector]) %>% tools::file_path_sans_ext() %>% tools::file_path_sans_ext()
   ffn <- attr(e, "sample_id_map")[e[, "id"]] %>% as.vector
-  density_plots <- sapply(seq(num_col), # First column is "id"
+  #density_plots <- sapply(seq(num_col), # First column is "id"
+  density_plots <- plinth::psapply(seq(num_col), # First column is "id"
     function(i)
     {
       ggplot2::ggplot(as.data.frame(e) %>% dplyr::mutate(id = as.factor(ffn)),
@@ -505,7 +506,7 @@ plot_common_umap_viz <- function(
         clusterPlotOnly <<- TRUE
 
       plinth::nop()
-    })
+    }, .parallel = TRUE)
 }
 
 
@@ -536,7 +537,8 @@ plot_cell_counts <- function(
 
   ##### Cell counts #####
 
-  cellCounts <- sapply(pmm_files,
+  #cellCounts <- sapply(pmm_files,
+  cellCounts <- plinth::psapply(pmm_files,
     function(a)
     {
       e <- new.env()
@@ -775,7 +777,8 @@ plot_heatmaps <- function(
       which_cluster_set <- colnames(clusterId)
   }
 
-  cluster_matrices <- sapply(which_cluster_set,
+  #cluster_matrices <- sapply(which_cluster_set,
+  cluster_matrices <- plinth::psapply(which_cluster_set,
     function(a)
     {
       plot_heatmaps_single(x, which_cluster_set = a, ...)
@@ -948,7 +951,7 @@ plot_differential_abundance <- function(
         {
           plot_differential_abundance_single(x, fit = fit, which_cluster_set = a, ...)
         })
-    })
+    }, .parallel = TRUE)
 
   plinth::nop()
 }

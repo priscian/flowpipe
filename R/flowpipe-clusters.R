@@ -314,6 +314,7 @@ summary.pmm <- function(
     `+/++` = c("+", "++")
     #`d/+` = c("d", "+")
   ),
+  overall_merged_labels_index = 1:2,
   overall_label_threshold = Inf,
   label_threshold = 0.90,
   collapse = "", expression_level_sep = ",",
@@ -348,9 +349,14 @@ summary.pmm <- function(
 
   pmm <- attr(x, "plus_minus_matrix")[, channels]
   if (!is.null(overall_label_threshold)) {
-    comp <- (plyr::aaply(pmm, 2, table)/NROW(pmm)) %>%
+    # comp <- (plyr::aaply(pmm, 2, table)/NROW(pmm)) %>%
+    #   as.data.frame %>% tibble::rownames_to_column()
+    comp <- sapply(pmm, table, simplify = FALSE) %>% purrr::compact() %>%
+      { structure(dplyr::bind_rows(.) %>% as.data.frame, row.names = names(.)) } %>%
+      data.matrix %>% `/`(NROW(pmm)) %>%
       as.data.frame %>% tibble::rownames_to_column()
-    plyr::l_ply(names(merged_labels),
+    ## N.B. I don't want to include *all* merged labels here!
+    plyr::l_ply(names(merged_labels)[overall_merged_labels_index],
       function(a)
       {
         comp <<- comp %@>% dplyr::rowwise() %@>% dplyr::mutate(
@@ -364,6 +370,21 @@ summary.pmm <- function(
       warning(sprintf("The following channels are overrepresented in all cells: %s",
         paste(names(overall_channels)[!overall_channels], collapse = " ")))
   }
+
+  ## Here, 'comp' should look something like this:
+  #                   -          d          +          ++       -/d       +/++
+  # IL-23_p19 0.8236050 0.10851854 0.05529584 0.012580632 0.9321235 0.06787647
+  # CD69      0.8493953 0.07843002 0.04751813 0.024656565 0.9278253 0.07217470
+  # TGFb      0.8752095 0.08020844 0.02647643 0.018105611 0.9554180 0.04458204
+  # IL-17A    0.8639330 0.07175749 0.04820795 0.016101551 0.9356905 0.06430950
+  # IL-10     0.8733086 0.07338119 0.04515121 0.008158991 0.9466898 0.05331020
+  # CCR7      0.8402868 0.09671154 0.04927721 0.013724493 0.9369983 0.06300171
+  # [...]
+  ##
+  ## The non-'merged_labels' columns should add to 1, i.e. '(rowSums(comp[, 1:4]) == 1) %>% all' is TRUE.
+  ## The 'merged_labels' columns should add to their component non-merged columns, e.g. "-/d" = "-" + "d".
+  ## 'comp' summarizes the phenotypic composition of all clusters at once as the proportion of each label count
+  ##   relative to all the events.
 
   if (byEvent) {
     e <- x[, channels, drop = FALSE]
@@ -391,7 +412,7 @@ summary.pmm <- function(
           paste(collapse = collapse) }, simplify = FALSE)
     }
   } else {
-    r <- sapply(n,
+    r <- sapply(n, # This doesn't appear to benefit if 'plinth::psapply()' is dropped in here -- it's worse, in fact!
       function(i)
       {
         e <- x[clusterId %in% i, channels, drop = FALSE]
@@ -412,6 +433,12 @@ summary.pmm <- function(
               })
             comp <- comp %>% plinth::dataframe() %>% tibble::column_to_rownames() %>%
               data.matrix
+
+            ## 'comp' should look something like this:
+            #                   -          d         +         ++       -/d       +/++
+            # IL-23_p19 0.9394749 0.03492733 0.0209564 0.00464135 0.9744023 0.02559775
+            ##
+            ## The names of all columns meeting 'label_threshold' (see below) are returned.
 
             rr <- ""
             if (any(comp >= label_threshold)) {
@@ -436,11 +463,18 @@ summary.pmm <- function(
     names(r) <- element_names
   }
 
+  ## If 'as_list = TRUE', 'r' is a list the length of the unique cluster names in the current cluster set,
+  ##   w/ elements named after the clusters; each element is a sub-list named after the channels/columns of 'x',
+  ##   whose elements contain all the phenotype names (e.g. "-", "+", "+/++", &c) meeting
+  ##   the proportion threshold for that channel & cluster. If no phenotype meets the threshold, "" is returned.
+  ## If 'as_list = FALSE', 'r' is a list the length of the unique cluster names in the current cluster set,
+  ##   each of whose elements is a single string displaying a full set of channel phenotypes separated
+  ##   according to 'collapse' & 'expression_level_sep'.
   r
 }
 
 ## usage:
-# summary(e, label_threshold = 0.90, as_list = FALSE)
+# summary(e[, -1], label_threshold = 0.90, as_list = TRUE)
 
 
 #' @export
@@ -455,6 +489,10 @@ search.default <- function(x, ...)
 }
 
 
+## Search plus-minus matrix of "pmm" expression object for channel phenotypes given in 'query', e.g.
+##   r <- search(e[, analysis_channels], query = c("cd45+/++", "cd3-/d"), summary... = list(which_cluster_set = 1, label_threshold = 0.55))
+## Return Value: A vector of names of clusters whose 'query' channels all meet/exceed their 'label_threshold's,
+##   i.e. each cluster returned is a hit for all the 'query' phenotypes.
 #' @export
 search.pmm <- function(
   x, # "pmm" object from 'get_expression_subset()'
@@ -560,7 +598,8 @@ merge_clusters <- function(
 
   tictoc::tic("Search clusters")
 
-  cc <- sapply(names(clusters),
+  #cc <- sapply(names(clusters),
+  cc <- plinth::psapply(names(clusters),
     function(a)
     {
       searchArgs$query <- clusters[[a]]

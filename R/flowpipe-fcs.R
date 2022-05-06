@@ -9,7 +9,8 @@ get_channels_by_sample <- function(
   })
 )
 {
-  l0 <- sapply(x,
+  #l0 <- sapply(x,
+  l0 <- plinth::psapply(x,
     function(a)
     {
       ff <- flowCore::read.FCS(a, transformation = FALSE, truncate_max_range = FALSE)
@@ -202,7 +203,8 @@ rename_fcs_parameters_name_desc <- function(
       })
   ) %>% as.data.frame
 
-  pp <- sapply(names(path_map),
+  #pp <- sapply(names(path_map),
+  pp <- plinth::psapply(names(path_map),
     function(a)
     {
       descAbo <- structure(cbs[[a]], .Names = cbs$name)
@@ -299,7 +301,8 @@ split_pmm_by_cluster <- function(
       if (!is.matrix(cid))
         cid <- structure(as.matrix(cid), .Dimnames = list(NULL, default_colname))
 
-      fs <- sapply(colnames(cid),
+      #fs <- sapply(colnames(cid),
+      fs <- plinth::psapply(colnames(cid),
         function(bc)
         {
           b <- cid[, bc]

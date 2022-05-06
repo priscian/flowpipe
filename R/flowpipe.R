@@ -215,7 +215,8 @@ get_fcs_expression_subset <- function(
   if (!is.null(seed))
     set.seed(seed)
 
-  l <- sapply(x,
+  #l <- sapply(x,
+  l <- plinth::psapply(x,
     function(a)
     {
       ff <- flowCore::read.FCS(a, transformation = FALSE, truncate_max_range = FALSE)
@@ -265,6 +266,7 @@ prepare_augmented_fcs_data <- function(
   remove_outliers = TRUE, flowCut... = list(),
   outfile_prefix = expression(outfile_prefix <- rep("", length(x))),
   outfile_suffix = "_pmm", # &c, also possibly 'NULL'
+  overwrite = TRUE,
   ...
 )
 {
@@ -286,9 +288,26 @@ prepare_augmented_fcs_data <- function(
 
   asinhTrans <- flowCore::arcsinhTransform(transformationId = "flowpipe-transformation", a = 1, b = b, c = 0)
 
-  r <- sapply(seq_along(x),
+  ## Invoke parallel processing for no. files > 1
+  sapply_fun <- sapply
+  if (length(x) > 1L)
+    sapply_fun <- plinth::psapply
+
+  r <- sapply_fun(seq_along(x),
     function(i)
     {
+      augmentedFcsFileName <-
+        sprintf("%s%s%s.RData", outfile_prefix[i], basename(x[i]), outfile_suffix)
+      augmentedFcsFilePath <- paste(data_dir, augmentedFcsFileName, sep = "/")
+
+      if (!overwrite) {
+        if (fs::file_exists(augmentedFcsFilePath)) {
+          cat(sprintf("Skipping existing augmented FCS file %s.", augmentedFcsFileName), fill = TRUE); utils::flush.console()
+
+          return (augmentedFcsFilePath)
+        }
+      }
+
       ff <- flowCore::read.FCS(x[i], transformation = FALSE, truncate_max_range = FALSE)
       if (is.null(channels_subset))
         channels_subset <- flowCore::colnames(ff)
@@ -327,9 +346,6 @@ prepare_augmented_fcs_data <- function(
       if (exists("flowCut_results"))
         attr(tff, "flowCut_results") <- flowCut_results
 
-      augmentedFcsFileName <-
-        sprintf("%s%s%s.RData", outfile_prefix[i], basename(x[i]), outfile_suffix)
-      augmentedFcsFilePath <- paste(data_dir, augmentedFcsFileName, sep = "/")
       cat(sprintf("Saving augmented FCS file as %s...", augmentedFcsFileName)); utils::flush.console()
       save(tff, file = augmentedFcsFilePath)
       cat(". Done.", fill = TRUE)
