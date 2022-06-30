@@ -33,7 +33,7 @@ do_differential_expression_single <- function(
   dge <- edgeR::DGEList(cell_counts_percent)
   ## N.B. 'left_join()' only here so that the design matrix matches up w/ the "cell_counts" table:
   design <- stats::model.matrix(model_formula,
-    data = m %>% dplyr::left_join(structure(plinth::dataframe(rownames(dge$samples)), .Names = metadata_id_var), .))
+    data = m %>% dplyr::left_join(structure(keystone::dataframe(rownames(dge$samples)), .Names = metadata_id_var), .))
   y <- edgeR::estimateDisp(dge, design)
 
   glmQLFitArgs <- list(
@@ -86,7 +86,8 @@ test_contrasts_single <- function(
   ##   https://support.bioconductor.org/p/87252/
   contrasts,
   include_other_vars = FALSE,
-  alpha = 0.05
+  alpha = 0.05,
+  ...
 )
 {
   if (is.logical(include_other_vars) && include_other_vars) {
@@ -109,8 +110,8 @@ test_contrasts_single <- function(
       do.call(edgeR::glmQLFTest, glmQLFTestArgs)
     })
 
-  res_sig <- plyr::llply(res, function(a) a %>% edgeR::topTags(Inf) %>% as.data.frame %>%
-    dplyr::filter(FDR < alpha))
+  res_sig <- plyr::llply(res, function(a) a %>% edgeR::topTags(Inf, ...) %>% as.data.frame %>%
+    dplyr::filter(dplyr::across(tidyselect::last_col(), ~ . < alpha)))
 
   inference <- list(results = res, sig_results = res_sig)
 
@@ -128,7 +129,7 @@ test_contrasts <- function(
   inference <- sapply(fits,
     function(fit)
     {
-      contrasts <- sapply(contrasts, function(b) plinth::poly_eval(b), simplify = FALSE)
+      contrasts <- sapply(contrasts, function(b) keystone::poly_eval(b), simplify = FALSE)
 
       test_contrasts_single(fit, contrasts, ...)
     }, simplify = FALSE)

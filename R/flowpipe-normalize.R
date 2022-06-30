@@ -26,7 +26,7 @@ bead_normalize <- function(
         )
         list_filesArgs <- utils::modifyList(list_filesArgs, list_files..., keep.null = TRUE)
 
-        do.call(plinth::list_files, list_filesArgs)
+        do.call(keystone::list_files, list_filesArgs)
       }, simplify = FALSE)) %>% unlist(use.names = FALSE)
 
     pp

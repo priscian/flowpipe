@@ -11,9 +11,9 @@ preprocess <- function(
   data_dir,
   queue = list(
     ## E.g.
-    # plinth::expr_sub(prelim_compensate_expr, list(compensate... = list())),
-    # plinth::expr_sub(prelim_bead_normalize_expr, list(bead_normalize... = list())),
-    # plinth::expr_sub(prelim_debarcode_expr, list(debarcode... = list()))
+    # keystone::expr_sub(prelim_compensate_expr, list(compensate... = list())),
+    # keystone::expr_sub(prelim_bead_normalize_expr, list(bead_normalize... = list())),
+    # keystone::expr_sub(prelim_debarcode_expr, list(debarcode... = list()))
   ),
   create_data_dir = TRUE,
   pattern = "(?i)\\.fcs$", list_files... = list(),
@@ -37,7 +37,7 @@ preprocess <- function(
         )
         list_filesArgs <- utils::modifyList(list_filesArgs, list_files..., keep.null = TRUE)
 
-        do.call(plinth::list_files, list_filesArgs)
+        do.call(keystone::list_files, list_filesArgs)
       }, simplify = FALSE)) %>% unlist(use.names = FALSE)
 
     pp0
@@ -51,7 +51,7 @@ preprocess <- function(
   ### Run through preprocessing queue
 
   for (i in queue) {
-    plinth::poly_eval(i)
+    keystone::poly_eval(i)
   }
 
   if (!is.null(result_fcs_path))

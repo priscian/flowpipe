@@ -19,8 +19,6 @@ plot_channel_densities_by_sample <- function(
   if (save_plot && !dir.exists(image_dir))
     dir.create(image_dir, recursive = TRUE)
 
-  def_par <- par(no.readonly = TRUE)#; dev.off()
-
   get_fcs_expression_subsetArgs <- list(
     x = x,
     sample_size = 10000
@@ -39,11 +37,11 @@ plot_channel_densities_by_sample <- function(
   #ffn <- basename(x[e[, "id"] %>% as.vector]) %>% tools::file_path_sans_ext() %>% tools::file_path_sans_ext()
   ffn <- attr(e, "sample_id_map")[e[, "id"]] %>% as.vector
   #density_plots <- sapply(seq(num_col), # First column is "id"
-  density_plots <- plinth::psapply(seq(num_col), # First column is "id"
+  density_plots <- keystone::psapply(seq(num_col), # First column is "id"
     function(i)
     {
       ggplot2::ggplot(as.data.frame(e) %>% dplyr::mutate(id = as.factor(ffn)),
-        ggplot2::aes_string(x = plinth::backtick(colnames(e)[i + 1]), y = "id")) +
+        ggplot2::aes_string(x = keystone::backtick(colnames(e)[i + 1]), y = "id")) +
         ggridges::geom_density_ridges(color = channel_colors[i], fill = scales::alpha(channel_colors[i], 0.4)) +
         ggplot2::scale_x_continuous(expand = c(0, 0)) +
         ggplot2::theme_bw()
@@ -63,7 +61,7 @@ plot_channel_densities_by_sample <- function(
         list(
           width = min(6.0 * num_col + 1, 200), # 200 in. is PDF maximum
           height = min(4.0 * num_row + 1, 200), # 200 in. is PDF maximum
-          file = plinth::poly_eval(file_path_template) %_% paste0(".", ext)
+          file = keystone::poly_eval(file_path_template) %_% paste0(".", ext)
         ))
       )
 
@@ -74,9 +72,8 @@ plot_channel_densities_by_sample <- function(
   } else {
     print(g)
   }
-  par(def_par)
 
-  plinth::nop()
+  keystone::nop()
 }
 
 
@@ -112,7 +109,7 @@ visualize_channels <- function(
   if (is_invalid(x)) {
     plot.new()
 
-    return (plinth::nop())
+    return (keystone::nop())
   }
 
   if (length(gating_channels) == 1) { # Density plot
@@ -127,16 +124,16 @@ visualize_channels <- function(
     do.call(plot, plot.densityArgs)
 
     if (visualize_gates) {
-      plinth::vline(
+      keystone::vline(
         sprintf("%.2f", cutoffs[[gating_channels[1]]]),
         abline... = list(col = scales::alpha("red", 0.5), lty = "dashed"),
-        text... = list(y = plinth::cp_coords()$y)
+        text... = list(y = keystone::cp_coords()$y)
       )
 
       pmm <- attr(x, "plus_minus_matrix") %>% tibble::as_tibble()
-      xx <- x[with(pmm, plinth::poly_eval(channels[[1]])), , drop = FALSE]
+      xx <- x[with(pmm, keystone::poly_eval(channels[[1]])), , drop = FALSE]
 
-      p <- with(plot.densityArgs$x, plinth::dataframe(x = x, y = y)) %>%
+      p <- with(plot.densityArgs$x, keystone::dataframe(x = x, y = y)) %>%
         dplyr::filter(x >= min(xx[, gating_channels[1]], na.rm = TRUE) &
           x <= max(xx[, gating_channels[1]]), na.rm = TRUE) %>%
         dplyr::mutate(
@@ -186,7 +183,7 @@ visualize_channels <- function(
 
     if (visualize_gates) {
       pmm <- attr(x, "plus_minus_matrix") %>% tibble::as_tibble()
-      xx <- x[with(pmm, plinth::poly_eval(channels[[1]])), , drop = FALSE]
+      xx <- x[with(pmm, keystone::poly_eval(channels[[1]])), , drop = FALSE]
 
       pointsArgs <- list(
         x = xx[, gating_channels],
@@ -209,9 +206,9 @@ visualize_channels <- function(
     }
   }
 
-  plinth::poly_eval(plot_end_callback)
+  keystone::poly_eval(plot_end_callback)
 
-  plinth::nop()
+  keystone::nop()
 }
 
 
@@ -267,6 +264,7 @@ plot_common_umap_viz_single <- function(
   plot_palette = randomcoloR::distinctColorPalette,
   na.value = scales::alpha("grey95", 0.3), # Default is "grey50"; NA for transparent
   labels = ~ (function(x) { ifelse(is.na(x), "other", x) })(.x),
+  label_clusters = TRUE,
   image_dir = NULL,
   current_image = 0,
   save_plot = FALSE,
@@ -285,12 +283,13 @@ plot_common_umap_viz_single <- function(
   if (is.logical(channels) && channels)
     channels <- colnames(x)
 
-  file_path_template <- plinth::poly_eval(file_path_template)
+  file_path_template <- keystone::poly_eval(file_path_template)
 
   if (save_plot && !dir.exists(dirname(file_path_template)))
     dir.create(dirname(file_path_template), recursive = TRUE)
 
-  def_par <- par(no.readonly = TRUE)#; dev.off()
+  ## N.B. This creates a spurious "Rplot.pdf" during parallel processing:
+  #def_par <- par(no.readonly = TRUE)#; dev.off()
 
   ## Make plotting data set
   cluster_id <- attr(x, "cluster_id")
@@ -301,7 +300,7 @@ plot_common_umap_viz_single <- function(
   #   .Names = names(attr(x, "id_map")) %>% basename %>% stringr::str_extract(sample_name_re))
   sample_id_map <- make_sample_id_map(x, sample_name_re)
   sample_id <- names(sample_id_map)[x[, "id"]]
-  d <- plinth::dataframe(UMAP1 = umap[, 1], UMAP2 = umap[, 2], x[, channels],
+  d <- keystone::dataframe(UMAP1 = umap[, 1], UMAP2 = umap[, 2], x[, channels],
     cluster_id = cluster_id %>% as.factor,
     sample_id = sample_id %>% as.factor
   )
@@ -314,13 +313,34 @@ plot_common_umap_viz_single <- function(
     group_id <- d$group_id
   }
 
+  calc_centroids <- function(x, y)
+  {
+    d <- x %>% dplyr::select(starts_with("UMAP"))
+
+    ## Find centroid for each group
+    dplyr::summarize(d, across(everything(), ~ mean(.x, na.rm = TRUE)))
+  }
+
+
   ##### By cluster #####
 
+  cluster_centroids <- d %>% as.data.frame %>%
+    dplyr::select(-c(channels %>% as.vector)) %>%
+    dplyr::group_by(cluster_id) %>%
+    dplyr::group_modify(
+      .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
+    dplyr::ungroup()
+
+  #g3 <- ggplot2::ggplot(dplyr::sample_n(d, 10000), ggplot2::aes(x = UMAP1, y = UMAP2, color = cluster_id)) +
   g3 <- ggplot2::ggplot(d, ggplot2::aes(x = UMAP1, y = UMAP2, color = cluster_id)) +
     ggplot2::geom_point(size = 0.8) + # default: 'shape = 16'
     ggplot2::theme_bw() +
     ggplot2::scale_color_manual(values = plot_palette(length(unique(cluster_id))), na.value = na.value, labels = labels) +
     ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = 4), ncol = 3))
+  if (label_clusters) {
+    g3 <- g3 +
+      ggplot2::geom_text(data = cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = cluster_id), color = "black", size = 3)
+  }
 
   if (save_plot) {
     plyr::l_ply(names(devices),
@@ -345,10 +365,26 @@ plot_common_umap_viz_single <- function(
   } else {
     print(g3)
   }
-  par(def_par)
+  #par(def_par) # I got rid of all the others below.
 
   ## Facet per sample
+  if (label_clusters) {
+    ## Remove 'geom_text()' layer from 'g3'
+    g3 <- gginnards::delete_layers(g3, match_type = "GeomText")
+  }
   g3a <- g3 + ggplot2::facet_wrap(~ sample_id)
+
+  sample_cluster_centroids <- d %>% as.data.frame %>%
+    dplyr::select(-c(channels %>% as.vector)) %>%
+    dplyr::group_by(sample_id, cluster_id) %>%
+    dplyr::group_modify(
+      .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
+    dplyr::ungroup()
+
+  if (label_clusters) {
+    g3a <- g3a +
+      ggplot2::geom_text(data = sample_cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = cluster_id), color = "black", size = 3)
+  }
 
   if (save_plot) {
     plyr::l_ply(names(devices),
@@ -373,10 +409,25 @@ plot_common_umap_viz_single <- function(
   } else {
     print(g3a)
   }
-  par(def_par)
 
   ## Facet per group
+  if (label_clusters) {
+    ## Remove 'geom_text()' layer from 'g3'
+    g3 <- gginnards::delete_layers(g3, match_type = "GeomText")
+  }
   g3b <- g3 + ggplot2::facet_wrap(~ group_id)
+
+  group_cluster_centroids <- d %>% as.data.frame %>%
+    dplyr::select(-c(channels %>% as.vector)) %>%
+    dplyr::group_by(group_id, cluster_id) %>%
+    dplyr::group_modify(
+      .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
+    dplyr::ungroup()
+
+  if (label_clusters) {
+    g3b <- g3b +
+      ggplot2::geom_text(data = group_cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = cluster_id), color = "black", size = 3)
+  }
 
   if (save_plot) {
     plyr::l_ply(names(devices),
@@ -401,18 +452,30 @@ plot_common_umap_viz_single <- function(
   } else {
     print(g3b)
   }
-  par(def_par)
 
   if (cluster_plot_only)
-    return (plinth::nop())
+    return (keystone::nop())
 
   ##### By sample #####
 
+  #g1 <- ggplot2::ggplot(dplyr::sample_n(d, 10000), ggplot2::aes(x = UMAP1, y = UMAP2, color = sample_id)) +
   g1 <- ggplot2::ggplot(d, ggplot2::aes(x = UMAP1, y = UMAP2, color = sample_id)) +
     ggplot2::geom_point(size = 0.8) + # default: 'shape = 16'
     ggplot2::theme_bw() +
     ggplot2::scale_color_manual(values = plot_palette(length(unique(sample_id))), na.value = na.value) +
     ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = 4), ncol = 3))
+
+  sample_centroids <- d %>% as.data.frame %>%
+    dplyr::select(-c(channels %>% as.vector)) %>%
+    dplyr::group_by(sample_id) %>%
+    dplyr::group_modify(
+      .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
+    dplyr::ungroup()
+
+  if (label_clusters) {
+    g1 <- g1 +
+      ggplot2::geom_text(data = sample_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = sample_id), color = "black", size = 3)
+  }
 
   if (save_plot) {
     plyr::l_ply(names(devices),
@@ -437,15 +500,27 @@ plot_common_umap_viz_single <- function(
   } else {
     print(g1)
   }
-  par(def_par)
 
   ##### By group #####
 
+  #g2 <- ggplot2::ggplot(dplyr::sample_n(d, 10000), ggplot2::aes(x = UMAP1, y = UMAP2, color = group_id)) +
   g2 <- ggplot2::ggplot(d, ggplot2::aes(x = UMAP1, y = UMAP2, color = group_id)) +
     ggplot2::geom_point(size = 0.8) + # default: 'shape = 16'
     ggplot2::theme_bw() +
     ggplot2::scale_color_manual(values = plot_palette(length(unique(group_id))), na.value = na.value) +
     ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = 4), ncol = 3))
+
+  group_centroids <- d %>% as.data.frame %>%
+    dplyr::select(-c(channels %>% as.vector)) %>%
+    dplyr::group_by(group_id) %>%
+    dplyr::group_modify(
+      .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
+    dplyr::ungroup()
+
+  if (label_clusters) {
+    g2 <- g2 +
+      ggplot2::geom_text(data = group_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = group_id), color = "black", size = 3)
+  }
 
   if (!is.null(m)) # Skip this plot if metadata arg is ignored
   {
@@ -472,11 +547,10 @@ plot_common_umap_viz_single <- function(
     } else {
       print(g2)
     }
-    par(def_par)
   }
 
   #browser()
-  plinth::nop()
+  keystone::nop()
 }
 
 
@@ -496,7 +570,8 @@ plot_common_umap_viz <- function(
   }
 
   clusterPlotOnly <- FALSE
-  plyr::l_ply(which_cluster_set,
+  #plyr::l_ply(which_cluster_set, .parallel = FALSE,
+  keystone::pl_ply(which_cluster_set,
     function(a)
     {
       plot_common_umap_viz_single(x, which_cluster_set = a, cluster_plot_only = clusterPlotOnly, ...)
@@ -505,8 +580,8 @@ plot_common_umap_viz <- function(
       if (!clusterPlotOnly)
         clusterPlotOnly <<- TRUE
 
-      plinth::nop()
-    }, .parallel = TRUE)
+      keystone::nop()
+    })
 }
 
 
@@ -531,14 +606,12 @@ plot_cell_counts <- function(
   if (save_plot && !dir.exists(image_dir))
     dir.create(image_dir, recursive = TRUE)
 
-  file_path_template <- plinth::poly_eval(file_path_template)
-
-  def_par <- par(no.readonly = TRUE)#; dev.off()
+  file_path_template <- keystone::poly_eval(file_path_template)
 
   ##### Cell counts #####
 
   #cellCounts <- sapply(pmm_files,
-  cellCounts <- plinth::psapply(pmm_files,
+  cellCounts <- keystone::psapply(pmm_files,
     function(a)
     {
       e <- new.env()
@@ -550,7 +623,7 @@ plot_cell_counts <- function(
   names(cell_counts) <- tools::file_path_sans_ext(basename(names(cell_counts))) %>%
     stringr::str_extract(sample_name_re) %>% rename_duplicates
 
-  ggdf <- plinth::dataframe(sample_id = names(cell_counts), cell_counts = as.numeric(cell_counts))
+  ggdf <- keystone::dataframe(sample_id = names(cell_counts), cell_counts = as.numeric(cell_counts))
   ## Add metadata info to 'ggdf'
   ggdf <- dplyr::left_join(ggdf, m %>% dplyr::select(id, group), by = c(sample_id = "id")) %>%
     dplyr::mutate(group = as.factor(group))
@@ -609,7 +682,6 @@ plot_cell_counts <- function(
   } else {
     print(g2)
   }
-  par(def_par)
 
   ##### Cell counts after initial gating #####
 
@@ -637,9 +709,8 @@ plot_cell_counts <- function(
   } else {
     print(g4)
   }
-  par(def_par)
 
-  plinth::nop()
+  keystone::nop()
 }
 
 
@@ -658,9 +729,9 @@ plot_heatmaps_single <- function(
   if (save_plot && !dir.exists(image_dir))
     dir.create(image_dir, recursive = TRUE)
 
-  file_path_template <- plinth::poly_eval(file_path_template)
+  file_path_template <- keystone::poly_eval(file_path_template)
 
-  def_par <- par(no.readonly = TRUE)#; dev.off()
+  #def_par <- par(no.readonly = TRUE)#; dev.off()
 
   ##### Heatmap of channels vs. clusters #####
 
@@ -723,14 +794,14 @@ plot_heatmaps_single <- function(
         )
       )
 
-      plinth::poly_eval(g5_expr)
+      keystone::poly_eval(g5_expr)
 
       dev.off()
     })
   } else {
-    plinth::poly_eval(g5_expr)
+    keystone::poly_eval(g5_expr)
   }
-  par(def_par)
+  #par(def_par)
 
   ## Center & scale heatmap values in the column (i.e. cluster) direction
   scale_ <- "column"
@@ -749,14 +820,14 @@ plot_heatmaps_single <- function(
         )
       )
 
-      plinth::poly_eval(g5_expr)
+      keystone::poly_eval(g5_expr)
 
       dev.off()
     })
   } else {
-    plinth::poly_eval(g5_expr)
+    keystone::poly_eval(g5_expr)
   }
-  par(def_par)
+  #par(def_par)
 
   cluster_matrix
 }
@@ -778,7 +849,7 @@ plot_heatmaps <- function(
   }
 
   #cluster_matrices <- sapply(which_cluster_set,
-  cluster_matrices <- plinth::psapply(which_cluster_set,
+  cluster_matrices <- keystone::psapply(which_cluster_set,
     function(a)
     {
       plot_heatmaps_single(x, which_cluster_set = a, ...)
@@ -805,13 +876,12 @@ plot_differential_abundance_single <- function(
   save_plot = FALSE,
   devices = flowpipe:::graphics_devices,
   file_path_template =
-    sprintf("%s/%03d%s-%s", image_dir, current_image, "_diff-abundance_significant-clusters", fs::path_sanitize(as.character(which_cluster_set), "_"))
+    sprintf("%s/%03d%s-%s", image_dir, current_image, "_diff-abundance_significant-clusters", fs::path_sanitize(as.character(which_cluster_set), "_")),
+  ...
 )
 {
   if (save_plot && !dir.exists(image_dir))
     dir.create(image_dir, recursive = TRUE)
-
-  def_par <- par(no.readonly = TRUE)#; dev.off()
 
   ##### UMAP visualization of significant differential abundance between conditions #####
 
@@ -832,33 +902,34 @@ plot_differential_abundance_single <- function(
   u <- sapply(names(contrasts),
     function(a)
     {
-      contrasts_a <- plinth::poly_eval(contrasts[[a]])
+      contrasts_a <- keystone::poly_eval(contrasts[[a]])
       glmQLFTestArgs <- utils::modifyList(
         list(glmfit = fit),
         structure(list(contrasts_a), .Names = ifelse(is.matrix(contrasts_a), "contrast", "coef")),
         keep.null = TRUE)
 
       res_tags <- do.call(edgeR::glmQLFTest, glmQLFTestArgs) %>%
-        edgeR::topTags(Inf) %>%
+        edgeR::topTags(Inf, ...) %>%
         as.data.frame %>%
         tibble::rownames_to_column("cluster_id")
+      alphaCol <- tail(colnames(res_tags), 1)
 
       rc <- results_column[a] %>% as.vector
       if (is.numeric(rc))
         rc <- colnames(res_tags)[rc]
 
-      diffexp_df <- structure(plinth::dataframe(cluster_id, umap),
+      diffexp_df <- structure(keystone::dataframe(cluster_id, umap),
         .Names = c("cluster_id", paste0("UMAP", seq(NCOL(umap))))) %>%
-        dplyr::left_join(res_tags %>% dplyr::select(cluster_id, !!rc, FDR),
+        dplyr::left_join(res_tags %>% dplyr::select(cluster_id, !!rc, tidyselect::last_col()),
           by = "cluster_id") %>%
         dplyr::rename(cluster = "cluster_id", "logFC" := rc) %>%
         dplyr::mutate(id = ids) %>%
         dplyr::left_join(m1, by = "id") %>%
         dplyr::mutate(
-          logFC = dplyr::case_when(FDR > alpha ~ 0.0, TRUE ~ logFC)
+          logFC = dplyr::case_when(!!rlang::sym(alphaCol) > alpha ~ 0.0, TRUE ~ logFC)
         )
 
-      if (diffexp_df %>% dplyr::filter(FDR <= alpha) %>% is_invalid)
+      if (diffexp_df %>% dplyr::filter(!!rlang::sym(alphaCol) <= alpha) %>% is_invalid)
         return (NULL)
 
       col <- structure(
@@ -909,7 +980,7 @@ plot_differential_abundance_single <- function(
         modifyList(devices[[a]],
           list(
             width = 11 * 2, height = 8.5 * 2,
-            file = plinth::poly_eval(file_path_template) %_% paste0(".", ext)
+            file = keystone::poly_eval(file_path_template) %_% paste0(".", ext)
           )
         )
       )
@@ -921,9 +992,8 @@ plot_differential_abundance_single <- function(
   } else {
     print(g6)
   }
-  par(def_par)
 
-  plinth::nop()
+  keystone::nop()
 }
 
 
@@ -943,7 +1013,8 @@ plot_differential_abundance <- function(
       which_cluster_set <- colnames(clusterId)
   }
 
-  plyr::l_ply(which_cluster_set,
+  #plyr::l_ply(which_cluster_set, .parallel = TRUE,
+  keystone::pl_ply(which_cluster_set,
     function(a)
     {
       plyr::l_ply(fits,
@@ -951,9 +1022,9 @@ plot_differential_abundance <- function(
         {
           plot_differential_abundance_single(x, fit = fit, which_cluster_set = a, ...)
         })
-    }, .parallel = TRUE)
+    })
 
-  plinth::nop()
+  keystone::nop()
 }
 
 
@@ -969,8 +1040,6 @@ plot_xshift_network <- function(
 {
   if (save_plot && !dir.exists(image_dir))
     dir.create(image_dir, recursive = TRUE)
-
-  def_par <- par(no.readonly = TRUE)#; dev.off()
 
   ##### X-Shift clusters #####
 
@@ -991,19 +1060,18 @@ plot_xshift_network <- function(
         modifyList(devices[[a]],
           list(
           width = 20, height = 20,
-            file = plinth::poly_eval(file_path_template) %_% paste0(".", ext)
+            file = keystone::poly_eval(file_path_template) %_% paste0(".", ext)
           )
         )
       )
 
-      plinth::poly_eval(g7_expr)
+      keystone::poly_eval(g7_expr)
 
       dev.off()
     })
   } else {
-    plinth::poly_eval(g7_expr)
+    keystone::poly_eval(g7_expr)
   }
-  par(def_par)
 
-  plinth::nop()
+  keystone::nop()
 }

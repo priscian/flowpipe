@@ -10,7 +10,7 @@ summarize_metadata <- function(
 {
   vu_summaryArgs <- list(
     f = form,
-    p = plinth::ptr(dat),
+    p = keystone::ptr(dat),
     summary_formula = summary,
     latex = latex,
     caption = ifelse(latex, Hmisc::latexTranslate(cap), cap),
@@ -26,7 +26,7 @@ summarize_metadata <- function(
   )
   vu_summaryArgs <- utils::modifyList(vu_summaryArgs, vu_summary..., keep.null = TRUE)
 
-  do.call(plinth::vu_summary, vu_summaryArgs)
+  do.call(keystone::vu_summary, vu_summaryArgs)
 
   nop()
 }
@@ -67,7 +67,7 @@ summarize_all_clusters_single <- function(
   expression_level_sep <- utils::modifyList(formals(summary.pmm)["expression_level_sep"],
     summary...["expression_level_sep"], keep.null = FALSE)$expression_level_sep
   sac$list <- plyr::ldply(names(rr),
-    function(a) { plinth::dataframe(cluster = a,
+    function(a) { keystone::dataframe(cluster = a,
       phenotype = paste0(names(rr[[a]]), sapply(rr[[a]], paste, collapse = expression_level_sep), collapse = collapse)) }) %>%
     tibble::as_tibble()
 
@@ -77,7 +77,7 @@ summarize_all_clusters_single <- function(
       r <- sapply(names(rr[[a]]),
         function(b)
         {
-          plinth::dataframe(antigen = b, expression = paste(rr[[a]][[b]], collapse = expression_level_sep))
+          keystone::dataframe(antigen = b, expression = paste(rr[[a]][[b]], collapse = expression_level_sep))
         }, simplify = FALSE) %>%
         purrr::reduce(dplyr::bind_rows) %>%
         dplyr::bind_cols(cluster = a, .)
@@ -114,7 +114,7 @@ summarize_all_clusters <- function(
       summarize_all_clusters_single(x, which_cluster_set = a, ...)
     }, simplify = FALSE)
 
-  plinth::poly_eval(callback)
+  keystone::poly_eval(callback)
 
   sac
 }

@@ -10,7 +10,7 @@ get_channels_by_sample <- function(
 )
 {
   #l0 <- sapply(x,
-  l0 <- plinth::psapply(x,
+  l0 <- keystone::psapply(x,
     function(a)
     {
       ff <- flowCore::read.FCS(a, transformation = FALSE, truncate_max_range = FALSE)
@@ -23,7 +23,7 @@ get_channels_by_sample <- function(
   ## Decide yes or no by transitivity of equality.
   commonChannelOrder <- sapply(l0, function(a){ a$name }, simplify = FALSE) %>% {
     flit <- .
-    seq(length(flit)) %>% utils::combn(m = 2) %>% plinth::dataframe() %>% as.list %>%
+    seq(length(flit)) %>% utils::combn(m = 2) %>% keystone::dataframe() %>% as.list %>%
       sapply(function(b) { all(flit[[b[1]]] == flit[[b[2]]]) }) %>% all
   }
   if (!commonChannelOrder)
@@ -31,7 +31,7 @@ get_channels_by_sample <- function(
 
   l <- rlang::duplicate(l0, shallow = FALSE)
   ## N.B. Use expression 'keep_sans_desc' to make changes to 'l' before continuing.
-  plinth::poly_eval(keep_sans_desc)
+  keystone::poly_eval(keep_sans_desc)
 
   d <- sapply(list(channels_by_sample = l0, channels_by_sample_full_desc = l),
     function(x) {
@@ -65,7 +65,7 @@ get_channels_by_sample <- function(
     {
       table(a, useNA = "ifany") %>%
         as.data.frame %>% `colnames<-`(c("desc", "freq")) %>%
-        dplyr::mutate(desc = plinth::unfactor(desc)) %>%
+        dplyr::mutate(desc = keystone::unfactor(desc)) %>%
         dplyr::arrange(desc(freq))
     }) %>% structure(.Names = d$channels_by_sample %>% dplyr::pull(name))
 
@@ -74,7 +74,7 @@ get_channels_by_sample <- function(
     purrr::compact() %>% unlist
 
   channels_by_sample <- structure(d$channels_by_sample,
-    #path_map = plinth::dataframe(desc = tail(names(d$channels_by_sample), -1), path = x),
+    #path_map = keystone::dataframe(desc = tail(names(d$channels_by_sample), -1), path = x),
     path_map = structure(x, .Names = tail(names(d$channels_by_sample), -1)),
     desc_freq_by_channel = desc_freq_by_channel,
     #channel_names_counts = channelNamesCounts,
@@ -204,7 +204,7 @@ rename_fcs_parameters_name_desc <- function(
   ) %>% as.data.frame
 
   #pp <- sapply(names(path_map),
-  pp <- plinth::psapply(names(path_map),
+  pp <- keystone::psapply(names(path_map),
     function(a)
     {
       descAbo <- structure(cbs[[a]], .Names = cbs$name)
@@ -302,7 +302,7 @@ split_pmm_by_cluster <- function(
         cid <- structure(as.matrix(cid), .Dimnames = list(NULL, default_colname))
 
       #fs <- sapply(colnames(cid),
-      fs <- plinth::psapply(colnames(cid),
+      fs <- keystone::psapply(colnames(cid),
         function(bc)
         {
           b <- cid[, bc]
@@ -361,7 +361,7 @@ export_id_map <- function(
   export_path
 )
 {
-  d <- plinth::dataframe(
+  d <- keystone::dataframe(
     id = attr(x, "id_map") %>% as.vector,
     file = attr(x, "id_map") %>% names %>% basename %>% tools::file_path_sans_ext()
   )

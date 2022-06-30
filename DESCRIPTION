@@ -1,23 +1,20 @@
 Package: flowpipe
 Title: Flow & Mass Cytometry Analysis Pipeline
-Version: 0.5.0
-Authors@R: person("Jim", "Java", email = "priscian@gmail.com", role = c("aut", "cre"))
+Version: 0.6.0
+Authors@R: person("Jim", "Java", email = "james.j.java@gmail.com", role = c("aut", "cre"),
+  comment = c(ORCID = "0000-0002-8254-3177"))
 Description: Flow & mass cytometry analysis pipeline.
 Depends: R (>= 3.5.0), magrittr, tribe
 Suggests: knitr, pander, testthat
-Imports: utils, tools, methods, tictoc,
-  pacman, fs, rio,
-  rlang, tidyr, tibble, plyr, dplyr, purrr, rrapply,
-  forcats,
-  stringr, rex,
-  flowCore, flowStats, MEM, flowCL, CATALYST, premessa, cydar, cytofkit,
+Imports: tictoc, fs, rrapply,
+  flowCore, flowStats, MEM, flowCL, CATALYST, premessa, cydar, cytofkit, debarcode,
   ConsensusClusterPlus, cluster, FlowSOM, uwot, Rtsne, igraph,
-  graphics, grDevices, gplots, ggplot2, cowplot, RColorBrewer, scales, randomcoloR,
-    pdftools, magick,
-  matrixStats, MASS, edgeR, Hmisc
-Remotes: github::priscian/flowpipe, github::priscian/plinth, github::priscian/debarcode
+  cowplot, gginnards, RColorBrewer, scales, randomcoloR, pdftools,
+  matrixStats, MASS, edgeR,
+  keystone
+Remotes: github::priscian/flowpipe, github::priscian/keystone, github::priscian/debarcode
 License: Artistic-2.0
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.1.1
+RoxygenNote: 7.2.0

@@ -114,7 +114,7 @@ make_clusters <- function(
   tol = 1e-5
 )
 {
-  ## This is necessary for using 'plinth::cordon()', because 1-arg version of 'match.arg()' fails -- TODO
+  ## This is necessary for using 'keystone::cordon()', because 1-arg version of 'match.arg()' fails -- TODO
   method <- match.arg(method, formals(make_clusters)$method %>% eval)
 
   x <- x[, channels, drop = FALSE]
@@ -229,7 +229,7 @@ make_metaclusters <- function(
   make_clusters... = list(),
   # make_clusters... = list( # Some useful defaults
   #   Rphenograph_k = 50,
-  #   FlowSOM_k = 40,
+  #   FlowSOM_k = 40, estimate_cluster_count = FALSE,
   #   num_nearest_neighbors = 30
   # ),
   make_metaclusters... = list(), # Passed to 'make_clusters()' for metaclustering step
@@ -287,7 +287,7 @@ make_metaclusters <- function(
     dplyr::relocate(centroid_cluster_id, .after = cluster_id)
 
   centroid_cluster_df <- sapply(l,
-    function(a) plinth::dataframe(sample_id = attr(a, "sample_id"), cluster_id = a),
+    function(a) keystone::dataframe(sample_id = attr(a, "sample_id"), cluster_id = a),
       simplify = FALSE) %>%
     purrr::reduce(dplyr::bind_rows) %>%
     dplyr::left_join(centroids_clustered %>% dplyr::select(sample_id, cluster_id, centroid_cluster_id),
@@ -404,7 +404,7 @@ summary.pmm <- function(
     r <- purrr::pmap(allLabels,
       function(...) { as.vector(c(...)) }) %>%
         `names<-`(rep(colnames(pmm), length.out = length(.))) %>%
-        plinth::chunk(NCOL(pmm))
+        keystone::chunk(NCOL(pmm))
 
     if (!as_list) {
       r <- sapply(re,
@@ -412,7 +412,7 @@ summary.pmm <- function(
           paste(collapse = collapse) }, simplify = FALSE)
     }
   } else {
-    r <- sapply(n, # This doesn't appear to benefit if 'plinth::psapply()' is dropped in here -- it's worse, in fact!
+    r <- sapply(n, # This doesn't appear to benefit if 'keystone::psapply()' is dropped in here -- it's worse, in fact!
       function(i)
       {
         e <- x[clusterId %in% i, channels, drop = FALSE]
@@ -431,7 +431,7 @@ summary.pmm <- function(
                   !!a := sum(!!!rlang::syms(merged_labels[[a]]))
                 )
               })
-            comp <- comp %>% plinth::dataframe() %>% tibble::column_to_rownames() %>%
+            comp <- comp %>% keystone::dataframe() %>% tibble::column_to_rownames() %>%
               data.matrix
 
             ## 'comp' should look something like this:
@@ -599,7 +599,7 @@ merge_clusters <- function(
   tictoc::tic("Search clusters")
 
   #cc <- sapply(names(clusters),
-  cc <- plinth::psapply(names(clusters),
+  cc <- keystone::psapply(names(clusters),
     function(a)
     {
       searchArgs$query <- clusters[[a]]

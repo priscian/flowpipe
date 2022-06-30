@@ -53,7 +53,7 @@ bisect <- function(
   if (plot_cutoff) {
     ## I'll need to jazz this up so I can check the flow data w/ file name & channel.
     plot(stats::density(z))
-    plinth::vline(sprintf("%.2f", valley), abline... = list(col = "red"), text... = list(y = cp_coords()$y))
+    keystone::vline(sprintf("%.2f", valley), abline... = list(col = "red"), text... = list(y = cp_coords()$y))
   }
 
   if (!return_silhouette)
@@ -105,7 +105,7 @@ trisect <- function(
   if (plot_cutoff) {
     ## I'll need to jazz this up so I can check the flow data w/ file name & channel.
     plot(stats::density(z))
-    plinth::vline(sprintf("%.2f", r), abline... = list(col = "red"), text... = list(y = cp_coords()$y))
+    keystone::vline(sprintf("%.2f", r), abline... = list(col = "red"), text... = list(y = cp_coords()$y))
   }
 
   return (r)
@@ -143,7 +143,7 @@ quadrisect <- function(
   if (plot_cutoff) {
     ## I'll need to jazz this up so I can check the flow data w/ file name & channel.
     plot(stats::density(z))
-    plinth::vline(sprintf("%.2f", r), abline... = list(col = "red"), text... = list(y = cp_coords()$y))
+    keystone::vline(sprintf("%.2f", r), abline... = list(col = "red"), text... = list(y = cp_coords()$y))
   }
 
   return (r)
@@ -239,7 +239,7 @@ multisect <- function(
 
         if (plot_cutoff) {
           plot(stats::density(z), main = attr(x, "main_title"), cex.main = 0.8)
-          plinth::vline(sprintf("%.2f", r), abline... = list(col = "red"), text... = list(y = plinth::cp_coords()$y))
+          keystone::vline(sprintf("%.2f", r), abline... = list(col = "red"), text... = list(y = keystone::cp_coords()$y))
         }
 
         break

@@ -1,6 +1,6 @@
 #' @importFrom magrittr %>%
 #' @importFrom tribe %@>% %<@>%
-#' @importFrom plinth %_% cordon is_invalid dataframe %nin%
+#' @importFrom keystone %_% cordon is_invalid dataframe %nin%
 #' @importFrom magrittr %>%
 
 ## http://cytoforum.stanford.edu/viewtopic.php?f=3&t=1026
@@ -163,7 +163,7 @@ find_plus_minus_by_channel <- function(
 
             if (multisectArgs$plot_cutoff) {
               plot(stats::density(b), main = sprintf("%s|%s", sampleName, colNames[i]), cex.main = 0.8)
-              plinth::vline(sprintf("%.2f", cutoff), abline... = list(col = "red"), text... = list(y = plinth::cp_coords()$y))
+              keystone::vline(sprintf("%.2f", cutoff), abline... = list(col = "red"), text... = list(y = keystone::cp_coords()$y))
             }
           }
 
@@ -216,7 +216,7 @@ get_fcs_expression_subset <- function(
     set.seed(seed)
 
   #l <- sapply(x,
-  l <- plinth::psapply(x,
+  l <- keystone::psapply(x,
     function(a)
     {
       ff <- flowCore::read.FCS(a, transformation = FALSE, truncate_max_range = FALSE)
@@ -231,7 +231,7 @@ get_fcs_expression_subset <- function(
         tff <- flowCore::transform(ff, transList)
       }
       e <- cbind(id = tools::file_path_sans_ext(basename(a)), flowCore::exprs(tff) %>%
-        `[`(sample(NROW(.), pmin(sample_size, NROW(.))), ) %>% plinth::dataframe())
+        `[`(sample(NROW(.), pmin(sample_size, NROW(.))), ) %>% keystone::dataframe())
 
       e
     }, simplify = FALSE)
@@ -239,7 +239,7 @@ get_fcs_expression_subset <- function(
   exprs <- l %>% purrr::reduce(dplyr::bind_rows) %>%
     dplyr::mutate(id = as.factor(id)) %>%
     `attr<-`("sample_id_map",
-      structure(.$id %>% plinth::unfactor() %>% unique, .Names = .$id %>% as.numeric %>% unique)) %>%
+      structure(.$id %>% keystone::unfactor() %>% unique, .Names = .$id %>% as.numeric %>% unique)) %>%
     dplyr::mutate(id = id %>% as.numeric)
   sample_id_map <- attr(exprs, "sample_id_map")
   exprs <- structure(data.matrix(exprs), sample_id_map = sample_id_map)
@@ -279,19 +279,19 @@ prepare_augmented_fcs_data <- function(
   if (is.null(outfile_prefix))
     outfile_prefix <- ""
   else
-    plinth::poly_eval(outfile_prefix)
+    keystone::poly_eval(outfile_prefix)
 
   if (is.null(outfile_suffix))
     outfile_suffix <- ""
   else
-    plinth::poly_eval(outfile_suffix)
+    keystone::poly_eval(outfile_suffix)
 
   asinhTrans <- flowCore::arcsinhTransform(transformationId = "flowpipe-transformation", a = 1, b = b, c = 0)
 
   ## Invoke parallel processing for no. files > 1
   sapply_fun <- sapply
   if (length(x) > 1L)
-    sapply_fun <- plinth::psapply
+    sapply_fun <- keystone::psapply
 
   r <- sapply_fun(seq_along(x),
     function(i)
@@ -463,7 +463,7 @@ gate <- function(
       if (is_invalid(x))
         return ()
 
-      x <<- x[with(pmm, plinth::poly_eval(strategy[[a]])), , drop = FALSE]
+      x <<- x[with(pmm, keystone::poly_eval(strategy[[a]])), , drop = FALSE]
     })
 
   if (verbose && !is_invalid(names(strategy))) {
@@ -489,7 +489,7 @@ get_expression_subset <- function(
     save_plot... <- NULL
 
   if (!is_invalid(save_plot...)) { # Save gating sequences to PDF
-    def_par <- par(no.readonly = TRUE)
+    #def_par <- par(no.readonly = TRUE)
 
     save_plotArgs <- list(
       width = 4.0 * length(gate...$strategy) + 1,
@@ -512,6 +512,7 @@ get_expression_subset <- function(
 
   i <- 0
   ss <- sapply(x,
+  #ss <- keystone::psapply(x, # N.B. This will fail to produce the PDF output; need to reevaluate this function.
     function(a)
     {
       ## N.B. I may want to load into an environment if object naming isn't consistent.
@@ -558,7 +559,7 @@ get_expression_subset <- function(
 
   if (!is_invalid(save_plot...)) {
     dev.off()
-    par(def_par)
+    #par(def_par)
 
     ## Convert PDF to PNG
     suppressWarnings(pdftools::pdf_convert(
@@ -570,7 +571,7 @@ get_expression_subset <- function(
   }
 
   if (!is.null(callback))
-    plinth::poly_eval(callback) # E.g. standardize column names
+    keystone::poly_eval(callback) # E.g. standardize column names
 
   ## Assemble a new "pmm" object from all subsets.
   e <- purrr::reduce(ss, rbind)

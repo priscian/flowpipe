@@ -17,9 +17,9 @@ batch_correct <- function(
 
   if (timer) tictoc::tic("Batch correction")
 
-  r <- do.call(batch_corr_fun, plinth::poly_eval(batch_corr_fun...))
+  r <- do.call(batch_corr_fun, keystone::poly_eval(batch_corr_fun...))
 
-  plinth::poly_eval(results_expr)
+  keystone::poly_eval(results_expr)
 
   if (timer) tictoc::toc()
 
@@ -140,7 +140,7 @@ run_CytoNorm.normalize <- function(
   do.call(CytoNorm::CytoNorm.normalize, CytoNorm.normalizeArgs)
 
   normalized_files <-
-    plinth::list_files(CytoNorm.normalizeArgs$outputDir, "\\.fcs$",
+    keystone::list_files(CytoNorm.normalizeArgs$outputDir, "\\.fcs$",
       recursive = 1, ignore.case = TRUE, full.names = TRUE)
 
   ## This method produces wacky outlier values; fix them in situ!
