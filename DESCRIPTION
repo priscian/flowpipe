@@ -8,13 +8,13 @@ Depends: R (>= 3.5.0), magrittr, tribe
 Suggests: knitr, pander, testthat
 #: N.B. I previously used "cytofkit2" instead of the more focused "Rphenograph" below.
 Imports: tictoc, fs, rrapply,
-  flowCore, flowStats, MEM, flowCL, CATALYST, premessa, cydar, Rphenograph, debarcode,
+  flowCore, flowStats, cytoMEM, flowCL, CATALYST, premessa, cydar, Rphenograph, debarcode,
   ConsensusClusterPlus, cluster, FlowSOM, uwot, Rtsne, igraph,
   cowplot, gginnards, RColorBrewer, scales, randomcoloR, pdftools,
   matrixStats, MASS, edgeR,
   keystone
 Remotes: github::priscian/flowpipe, github::priscian/keystone, github::priscian/debarcode,
-  github::JinmiaoChenLab/Rphenograph
+  github::JinmiaoChenLab/Rphenograph, github::cytolab/cytoMEM
 License: Artistic-2.0
 Encoding: UTF-8
 LazyData: true
