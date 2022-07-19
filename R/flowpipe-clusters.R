@@ -201,15 +201,22 @@ make_clusters <- function(
     })(),
 
     (function() {
+      ## N.B. This list is for 'cytofkit2::cytof_cluster()', which provides additional clustering methods:
       cytof_clusterArgs <- list(
         xdata = x,
         method  = method,
         Rphenograph_k = Rphenograph_k
       )
+      ## N.B. This list is for 'Rphenograph::Rphenograph()', with only the one method:
+      cytof_clusterArgs <- list(
+        data = x,
+        k = Rphenograph_k
+      )
       cytof_clusterArgs <- utils::modifyList(cytof_clusterArgs, cytof_cluster..., keep.null = TRUE)
 
       tryCatch({
-        do.call(cytofkit::cytof_cluster, cytof_clusterArgs)
+        # do.call(cytofkit2::cytof_cluster, cytof_clusterArgs)
+        do.call(Rphenograph::Rphenograph, cytof_clusterArgs)
       }, error = function(e) { message("\nError: ", e$message); flush.console(); return (NULL) })
     })()
   )
@@ -218,7 +225,7 @@ make_clusters <- function(
 }
 
 ## Also see:
-# clusters_pg <- cytofkit::cytof_cluster(xdata = e[, channels, drop = FALSE], method = "Rphenograph")
+# clusters_pg <- cytofkit2::cytof_cluster(xdata = e[, channels, drop = FALSE], method = "Rphenograph")
 ## N.B. Might need to remove duplicate rows beforehand!
 
 
