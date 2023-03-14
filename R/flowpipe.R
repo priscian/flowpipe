@@ -1,6 +1,6 @@
 #' @importFrom magrittr %>%
 #' @importFrom tribe %@>% %<@>%
-#' @importFrom keystone %_% cordon is_invalid dataframe %nin%
+#' @importFrom keystone %_% cordon is_invalid dataframe %nin% nop
 #' @importFrom magrittr %>%
 
 ## http://cytoforum.stanford.edu/viewtopic.php?f=3&t=1026
@@ -215,7 +215,6 @@ get_fcs_expression_subset <- function(
   if (!is.null(seed))
     set.seed(seed)
 
-  #l <- sapply(x,
   l <- keystone::psapply(x,
     function(a)
     {
@@ -444,14 +443,25 @@ gate <- function(
     return (x)
   }
 
-  plyr::l_ply(seq_along(strategy),
+  lstrategy <- keystone::psapply(strategy,
     function(a)
     {
-      pmm <- attr(x, "plus_minus_matrix") %>% tibble::as_tibble()
+      with(attr(x, "plus_minus_matrix") %>% tibble::as_tibble(), keystone::poly_eval(a))
+    }, simplify = FALSE, .parallel = FALSE) %>%
+    { Reduce(`&`, ., accumulate = TRUE) } %>%
+    { c(list(rep(TRUE, NROW(x))), .) }
+
+  gatePlots <- keystone::psapply(seq_along(strategy),
+    function(a)
+    {
+      gatePlotPath <- tempfile()
+      grDevices::png(file = gatePlotPath, bg = "transparent")
+      dev.control(displaylist = "enable")
 
       ## Plot gating strategy
       visualize_channelsArgs <- list(
-        x = x,
+        #x = x,
+        x = x[lstrategy[[a]], , drop = FALSE],
         channels = strategy[a] # Named list w/ a single element
       )
       visualize_channelsArgs <-
@@ -459,19 +469,21 @@ gate <- function(
 
       do.call(visualize_channels, visualize_channelsArgs)
 
-      ## Check whether 'x' has been gated down to zero events:
-      if (is_invalid(x))
-        return ()
+      gatePlot <- grDevices::recordPlot()
+      invisible(dev.off())
+      unlink(gatePlotPath)
 
-      x <<- x[with(pmm, keystone::poly_eval(strategy[[a]])), , drop = FALSE]
-    })
+      gatePlot
+    }, simplify = FALSE, .parallel = FALSE)
+
+  x <- x[tail(lstrategy, 1)[[1]], , drop = FALSE]
 
   if (verbose && !is_invalid(names(strategy))) {
     cat("Gating strategies applied:", paste(names(strategy), collapse = ", "), fill = TRUE)
     utils::flush.console()
   }
 
-  x
+  list(pmm = x, grobs = gatePlots)
 }
 
 
@@ -479,7 +491,7 @@ gate <- function(
 get_expression_subset <- function(
   x, # Vector of file paths to augmented 'flowCore::flowFrame' objects
   gate... = list(), # Preprocess samples individually
-  save_plot_fun = grDevices::pdf, save_plot... = list(),
+  save_plot_fun = grDevices::cairo_pdf, save_plot... = list(),
   seed = 666,
   sample_size = 10000,
   callback = NULL # An expression
@@ -488,57 +500,41 @@ get_expression_subset <- function(
   if (length(gate...) == 0L)
     save_plot... <- NULL
 
-  if (!is_invalid(save_plot...)) { # Save gating sequences to PDF
-    #def_par <- par(no.readonly = TRUE)
-
-    save_plotArgs <- list(
-      width = 4.0 * length(gate...$strategy) + 1,
-      height = 4.0 * length(x) + 1
-    )
-    save_plotArgs <- utils::modifyList(save_plotArgs, save_plot..., keep.null = TRUE)
-
-    image_dir <- dirname(save_plotArgs$file)
-    if (!dir.exists(image_dir))
-      dir.create(image_dir, recursive = TRUE)
-
-    do.call(save_plot_fun, save_plotArgs)
-
-    ## TODO: This needs some serious work; I need to determine a max number of gates per page.
-    # graphics::layout(
-    #   matrix(seq(length(x) * length(gate...$strategy)), byrow = TRUE, ncol = length(gate...$strategy))
-    # )
-    par(mfrow = c(length(x), length(gate...$strategy)))
-  }
-
-  i <- 0
-  ss <- sapply(x,
-  #ss <- keystone::psapply(x, # N.B. This will fail to produce the PDF output; need to reevaluate this function.
+  ss <- keystone::psapply(seq_along(x),
     function(a)
     {
       ## N.B. I may want to load into an environment if object naming isn't consistent.
       ## (Then use the only object in the environment.)
-      load(a)
+      load(x[a])
 
       exprs_tff <- flowCore::exprs(tff)
       sampleName <- tools::file_path_sans_ext(basename(flowCore::description(tff)$FILENAME))
 
       remove(tff)
 
+      grobs <- NULL
       if (length(gate...) != 0L) {
         gateArgs <- list(
           x = exprs_tff,
           visualize_channels... =
             list(
               # N.B. Change the following line to use 'rlang::enquo()' leading to a call to 'mtext()':
-              plot... = list(sub = sampleName),
+              #plot... = list(sub = sampleName),
               plot_end_callback = expression({
                 graphics::title(main = sprintf("Gating strategy: %s", names(channels)))
+                if (visualize_gates) {
+                  graphics::mtext(sprintf("Events: %d/%d", NROW(xx), NROW(x)),
+                    side = 1, line = -1, cex = 0.8)
+                }
               })
             )
         )
         gateArgs <- utils::modifyList(gateArgs, gate..., keep.null = TRUE)
 
-        exprs_tff <- do.call(gate, gateArgs)
+        flit <- do.call(gate, gateArgs)
+        exprs_tff <- flit$pmm
+        grobs <- flit$grobs
+        rm(flit)
       }
 
       if (!is.null(seed))
@@ -548,26 +544,62 @@ get_expression_subset <- function(
       e <- exprs_tff[sample(NROW(exprs_tff), pmin(sample_size, NROW(exprs_tff))), ]
       pmm <- attr(e, "plus_minus_matrix"); rownames(pmm) <- NULL
 
-      i <<- i + 1
-      id <- rep(i, NROW(e))
+      id <- rep(a, NROW(e))
       r <- cbind(id = id, e)
       attr(r, "plus_minus_matrix") <- cbind(id = id, pmm)
       class(r) <- class(e)
 
-      structure(r, total_gated_events = NROW(exprs_tff))
-    }, simplify = FALSE)
+      structure(r, total_gated_events = NROW(exprs_tff), grobs = grobs, sample_name = sampleName)
+    }, simplify = FALSE) %>% `names<-`(x)
 
-  if (!is_invalid(save_plot...)) {
-    dev.off()
-    #par(def_par)
+  ## Create pre-gating poster
+  grobs <- structure(sapply(ss, function(a) attr(a, "grobs"), simplify = FALSE),
+    .Names = sapply(ss, function(a) attr(a, "sample_name"), simplify = FALSE))
+  anyGrobs <- !is_invalid(grobs %>% unlist %>% purrr::compact())
+  if (anyGrobs) {
+    max_gates <- sapply(grobs, length) %>% max
+    grobs <- sapply(grobs, `length<-`, value = max_gates, simplify = FALSE)
 
-    ## Convert PDF to PNG
-    suppressWarnings(pdftools::pdf_convert(
-      pdf = save_plotArgs$file,
-      format = "png",
-      dpi = 100,
-      filenames = sprintf("%s.png", tools::file_path_sans_ext(save_plotArgs$file))
-    ))
+    if (!is_invalid(save_plot...)) { # Save gating sequences to PDF
+      save_plotArgs <- list(
+        width = 5.0 * max_gates + 1,
+        height = 5.0 * length(grobs) + 1
+      )
+      save_plotArgs <- utils::modifyList(save_plotArgs, save_plot..., keep.null = TRUE)
+
+      if (!is.null(save_plotArgs$file)) {
+        image_dir <- dirname(save_plotArgs$file)
+        if (!dir.exists(image_dir))
+          dir.create(image_dir, recursive = TRUE)
+      }
+
+      do.call(save_plot_fun, save_plotArgs)
+
+      cowplot::plot_grid(
+        ## This creates a list of "recordedplot" objects:
+        #plotlist = sapply(grobs, function(a) if (is.null(a)) list(NULL) else a),
+        plotlist = grobs %>% purrr::flatten(),
+        ncol = max_gates,
+        hjust = 0, label_x = 0.01,
+        labels = rep("", max_gates * length(grobs)) %>%
+          `[<-`(seq(from = 1, by = max_gates, length.out = length(grobs)), names(grobs)),
+        #label_colour = "darkgreen",
+        label_size = 16
+      ) %>% print
+
+      if (!is.null(save_plotArgs$file))
+        dev.off()
+
+      ## Convert PDF to PNG
+      if (!is.null(save_plotArgs$file)) {
+        suppressWarnings(pdftools::pdf_convert(
+          pdf = save_plotArgs$file,
+          format = "png",
+          dpi = 100,
+          filenames = sprintf("%s.png", tools::file_path_sans_ext(save_plotArgs$file))
+        ))
+      }
+    }
   }
 
   if (!is.null(callback))
@@ -577,7 +609,7 @@ get_expression_subset <- function(
   e <- purrr::reduce(ss, rbind)
   pmm <- purrr::reduce(sapply(ss, function(a) attr(a, "plus_minus_matrix"), simplify = FALSE), rbind); rownames(pmm) <- NULL
   attr(e, "plus_minus_matrix") <- pmm
-  attr(e, "id_map") <- structure(seq(i), .Names = x)
+  attr(e, "id_map") <- structure(pmm$id %>% unique, .Names = x)
   attr(e, "total_gated_events") <- sapply(ss, function(a) attr(a, "total_gated_events"))
   class(e) <- class(ss[[1]])
 

@@ -36,7 +36,6 @@ plot_channel_densities_by_sample <- function(
   ## This one still works, but is slower:
   #ffn <- basename(x[e[, "id"] %>% as.vector]) %>% tools::file_path_sans_ext() %>% tools::file_path_sans_ext()
   ffn <- attr(e, "sample_id_map")[e[, "id"]] %>% as.vector
-  #density_plots <- sapply(seq(num_col), # First column is "id"
   density_plots <- keystone::psapply(seq(num_col), # First column is "id"
     function(i)
     {
@@ -54,6 +53,7 @@ plot_channel_densities_by_sample <- function(
     function(a)
     {
       ext <- devices[[a]]$ext; devices[[a]]$ext <- NULL
+      filePath <- keystone::poly_eval(file_path_template) %_% paste0(".", ext)
       ## Reduce resolution for 'png()' etc. to a manageable value:
       if ("res" %in% names(formals(eval(parse(text = a))))) devices[[a]]$res <- 50
       do.call(eval(parse(text = a)),
@@ -61,13 +61,27 @@ plot_channel_densities_by_sample <- function(
         list(
           width = min(6.0 * num_col + 1, 200), # 200 in. is PDF maximum
           height = min(4.0 * num_row + 1, 200), # 200 in. is PDF maximum
-          file = keystone::poly_eval(file_path_template) %_% paste0(".", ext)
+          file = filePath
         ))
       )
 
       print(g)
 
       dev.off()
+
+      ## Resize very large PNGs to fit into LaTeX documents
+      if (a %>% stringr::str_detect(stringr::regex("png$", ignore_case = TRUE))) {
+        local({
+          i <- magick::image_read(filePath)
+          ii <- magick::image_info(i)[, c("width", "height")]
+          if (any(ii %>% unlist > 16384)) {
+            ni <- magick::image_scale(i, ifelse(ii$width > 16384, "", "x") %_% "16384")
+            magick::image_write(ni, sprintf("%s-resized.%s", tools::file_path_sans_ext(filePath), tools::file_ext(filePath)))
+          }
+        })
+      }
+
+      nop()
     })
   } else {
     print(g)
@@ -82,26 +96,31 @@ visualize_channels <- function(
   x, # Expression matrix of class "pmm"
   channels, # Character vector or gating expression a là 'gate()' as a 1-element named list
   extract_gating_channels = NULL, # Replace only if the default function doesn't work well
+  event_mask = rep(TRUE, NROW(x)),
   plot... = list(),
   kde2d... = list(),
   contour... = list(),
   points... = list(),
   abline... = list(),
-  plot_end_callback = NULL
+  plot_end_callback = NULL,
+  ...
 )
 {
   if (is.null(extract_gating_channels))
     extract_gating_channels <- function(m, s)
     {
-      re <- stringr::regex(stringr::str_flatten(rex::escape(colnames(m)), "|"))
+      ## Ordering the colnames by decreasing length will prevent e.g. a match between
+      ##   "CD4" & "CD45" before the regex search has gotten to "CD45".
+      re <- stringr::regex(stringr::str_flatten(rex::escape(colnames(m)[colnames(m)
+        %>% nchar %>% order(decreasing = TRUE)]), "|"))
       stringr::str_match_all(as.character(s[[1]]), re)[[1]] %>% drop %>% unique
     }
 
+  cutoffs <- x %>% attr("plus_minus_matrix") %>% attr("cutoffs")
   visualize_gates <- FALSE
   if (!is.character(channels)) {
     visualize_gates <- TRUE
     gating_channels <- extract_gating_channels(x, channels)
-    cutoffs <- (x %>% attr("plus_minus_matrix") %>% attr("cutoffs"))[gating_channels]
   } else {
     gating_channels <- channels
   }
@@ -114,9 +133,9 @@ visualize_channels <- function(
 
   if (length(gating_channels) == 1) { # Density plot
     plot.densityArgs <- list(
-      x = stats::density(x[, gating_channels[1]]),
+      x = stats::density(x[event_mask, gating_channels[1]]),
       main = "",
-      xlim = c(min(0, x[, gating_channels[1]]), max(x[, gating_channels[1]])),
+      xlim = c(min(0, x[event_mask, gating_channels[1]]), max(x[event_mask, gating_channels[1]])),
       ylab = paste(gating_channels[1], "Density")
     )
     plot.densityArgs <- utils::modifyList(plot.densityArgs, plot..., keep.null = TRUE)
@@ -124,14 +143,16 @@ visualize_channels <- function(
     do.call(plot, plot.densityArgs)
 
     if (visualize_gates) {
-      keystone::vline(
-        sprintf("%.2f", cutoffs[[gating_channels[1]]]),
-        abline... = list(col = scales::alpha("red", 0.5), lty = "dashed"),
-        text... = list(y = keystone::cp_coords()$y)
-      )
+      if (!is.null(cutoffs)) {
+        keystone::vline(
+          sprintf("%.2f", cutoffs[[gating_channels[1]]]),
+          abline... = list(col = scales::alpha("red", 0.5), lty = "dashed"),
+          text... = list(y = keystone::cp_coords()$y)
+        )
+      }
 
       pmm <- attr(x, "plus_minus_matrix") %>% tibble::as_tibble()
-      xx <- x[with(pmm, keystone::poly_eval(channels[[1]])), , drop = FALSE]
+      xx <- x[with(pmm, event_mask & keystone::poly_eval(channels[[1]])), , drop = FALSE]
 
       p <- with(plot.densityArgs$x, keystone::dataframe(x = x, y = y)) %>%
         dplyr::filter(x >= min(xx[, gating_channels[1]], na.rm = TRUE) &
@@ -144,12 +165,12 @@ visualize_channels <- function(
     }
   } else { # Biaxial plot
     kde2dArgs <- list(
-      x = x[, gating_channels[1]],
-      y = x[, gating_channels[2]],
+      x = x[event_mask, gating_channels[1]],
+      y = x[event_mask, gating_channels[2]],
       n = 50,
       h = max(
-        MASS::bandwidth.nrd(x[, gating_channels[1]]),
-        MASS::bandwidth.nrd(x[, gating_channels[2]])
+        MASS::bandwidth.nrd(x[event_mask, gating_channels[1]]),
+        MASS::bandwidth.nrd(x[event_mask, gating_channels[2]])
       )
     )
     kde2dArgs <- utils::modifyList(kde2dArgs, kde2d..., keep.null = TRUE)
@@ -157,12 +178,12 @@ visualize_channels <- function(
     z <- do.call(MASS::kde2d, kde2dArgs)
 
     plotArgs <- list(
-      x = x[, gating_channels],
+      x = x[event_mask, gating_channels],
       pch = ".",
       cex = 0.1,
       col = "gray",
-      xlim = c(min(0, x[, gating_channels[1]]), max(x[, gating_channels[1]])),
-      ylim = c(min(0, x[, gating_channels[2]]), max(x[, gating_channels[2]])),
+      xlim = c(min(0, x[event_mask, gating_channels[1]]), max(x[event_mask, gating_channels[1]])),
+      ylim = c(min(0, x[event_mask, gating_channels[2]]), max(x[event_mask, gating_channels[2]])),
       xlab = gating_channels[1], ylab = gating_channels[2]
     )
     plotArgs <- utils::modifyList(plotArgs, plot..., keep.null = TRUE)
@@ -183,13 +204,13 @@ visualize_channels <- function(
 
     if (visualize_gates) {
       pmm <- attr(x, "plus_minus_matrix") %>% tibble::as_tibble()
-      xx <- x[with(pmm, keystone::poly_eval(channels[[1]])), , drop = FALSE]
+      xx <- x[with(pmm, event_mask & keystone::poly_eval(channels[[1]])), , drop = FALSE]
 
       pointsArgs <- list(
         x = xx[, gating_channels],
         pch = plotArgs$pch,
         cex = 0.5,
-        col = "red"
+        col = scales::alpha("red", 0.1)
       )
       pointsArgs <- utils::modifyList(pointsArgs, points..., keep.null = TRUE)
 
@@ -201,12 +222,14 @@ visualize_channels <- function(
       )
       ablineArgs <- utils::modifyList(ablineArgs, abline..., keep.null = TRUE)
 
-      do.call(graphics::abline, c(ablineArgs, list(v = cutoffs[[gating_channels[1]]])))
-      do.call(graphics::abline, c(ablineArgs, list(h = cutoffs[[gating_channels[2]]])))
+      if (!is.null(cutoffs)) {
+        do.call(graphics::abline, c(ablineArgs, list(v = cutoffs[[gating_channels[1]]])))
+        do.call(graphics::abline, c(ablineArgs, list(h = cutoffs[[gating_channels[2]]])))
+      }
     }
   }
 
-  keystone::poly_eval(plot_end_callback)
+  keystone::poly_eval(plot_end_callback, ...)
 
   keystone::nop()
 }
@@ -272,9 +295,10 @@ plot_common_umap_viz_single <- function(
   devices = flowpipe:::graphics_devices,
   file_path_template =
     sprintf("%s/%s/%03d%s-%s", image_dir,
-      fs::path_sanitize(as.character(which_cluster_set), "_"),
-      current_image, "_umap", fs::path_sanitize(as.character(which_cluster_set), "_")),
-  seed = 666
+      fs::path_sanitize(stringr::str_trunc(as.character(which_cluster_set), 31), "_"),
+      current_image, "_umap", fs::path_sanitize(stringr::str_trunc(as.character(which_cluster_set), 31), "_")),
+  seed = 666,
+  use_complete_centroids = FALSE
 )
 {
   if (!is.null(seed))
@@ -284,6 +308,7 @@ plot_common_umap_viz_single <- function(
     channels <- colnames(x)
 
   file_path_template <- keystone::poly_eval(file_path_template)
+  #cat(file_path_template, fill = TRUE); utils::flush.console()
 
   if (save_plot && !dir.exists(dirname(file_path_template)))
     dir.create(dirname(file_path_template), recursive = TRUE)
@@ -381,6 +406,13 @@ plot_common_umap_viz_single <- function(
       .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
     dplyr::ungroup()
 
+  if (use_complete_centroids) {
+    flit <- sapply(seq_along(unique(sample_id)), function(a) cluster_centroids, simplify = FALSE) %>%
+      Reduce(rbind, .) %>% dplyr::select(last_col(offset = 1), last_col())
+    sample_cluster_centroids <-
+      sample_cluster_centroids %>% `[<-`(, seq(NCOL(.) - 1, NCOL(.)), value = flit)
+  }
+
   if (label_clusters) {
     g3a <- g3a +
       ggplot2::geom_text(data = sample_cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = cluster_id), color = "black", size = 3)
@@ -423,6 +455,13 @@ plot_common_umap_viz_single <- function(
     dplyr::group_modify(
       .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
     dplyr::ungroup()
+
+  if (use_complete_centroids) {
+    flit <- sapply(seq_along(unique(group_id)), function(a) cluster_centroids, simplify = FALSE) %>%
+      Reduce(rbind, .) %>% dplyr::select(last_col(offset = 1), last_col())
+    group_cluster_centroids <-
+      group_cluster_centroids %>% `[<-`(, seq(NCOL(.) - 1, NCOL(.)), value = flit)
+  }
 
   if (label_clusters) {
     g3b <- g3b +
@@ -570,7 +609,6 @@ plot_common_umap_viz <- function(
   }
 
   clusterPlotOnly <- FALSE
-  #plyr::l_ply(which_cluster_set, .parallel = FALSE,
   keystone::pl_ply(which_cluster_set,
     function(a)
     {
@@ -581,7 +619,7 @@ plot_common_umap_viz <- function(
         clusterPlotOnly <<- TRUE
 
       keystone::nop()
-    })
+    }) # '.parallel = FALSE' to test
 }
 
 
@@ -610,7 +648,6 @@ plot_cell_counts <- function(
 
   ##### Cell counts #####
 
-  #cellCounts <- sapply(pmm_files,
   cellCounts <- keystone::psapply(pmm_files,
     function(a)
     {
@@ -723,7 +760,8 @@ plot_heatmaps_single <- function(
   save_plot = FALSE,
   devices = flowpipe:::graphics_devices,
   file_path_template =
-    sprintf("%s/%03d%s-%s", image_dir, current_image, "_heatmap_channels-clusters", fs::path_sanitize(as.character(which_cluster_set), "_"))
+    sprintf("%s/%03d%s-%s", image_dir, current_image, "_heatmap_channels-clusters",
+      fs::path_sanitize(stringr::str_trunc(as.character(which_cluster_set), 31), "_"))
 )
 {
   if (save_plot && !dir.exists(image_dir))
@@ -773,7 +811,9 @@ plot_heatmaps_single <- function(
       rowsep = c(1:NROW(t(cluster_matrix))),
       xlab = "cluster", ylab = "channel", scale = scale_,
       margins = c(15, 10), # Increase these to give more room to col & row labels, respectively
-      cexRow = cexRow, cexCol = cexCol
+      cexRow = cexRow, cexCol = cexCol,
+      cellnote = t(cluster_matrix) %@>% { sprintf("%0.2f", .) },
+      notecol = "black", notecex = 1.0
     )
   })
 
@@ -848,7 +888,6 @@ plot_heatmaps <- function(
       which_cluster_set <- colnames(clusterId)
   }
 
-  #cluster_matrices <- sapply(which_cluster_set,
   cluster_matrices <- keystone::psapply(which_cluster_set,
     function(a)
     {
@@ -876,7 +915,8 @@ plot_differential_abundance_single <- function(
   save_plot = FALSE,
   devices = flowpipe:::graphics_devices,
   file_path_template =
-    sprintf("%s/%03d%s-%s", image_dir, current_image, "_diff-abundance_significant-clusters", fs::path_sanitize(as.character(which_cluster_set), "_")),
+    sprintf("%s/%03d%s-%s", image_dir, current_image, "_diff-abundance_significant-clusters",
+      fs::path_sanitize(stringr::str_trunc(as.character(which_cluster_set), 31), "_")),
   ...
 )
 {
@@ -1013,7 +1053,6 @@ plot_differential_abundance <- function(
       which_cluster_set <- colnames(clusterId)
   }
 
-  #plyr::l_ply(which_cluster_set, .parallel = TRUE,
   keystone::pl_ply(which_cluster_set,
     function(a)
     {

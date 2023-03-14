@@ -52,6 +52,7 @@ summarize_all_clusters_single <- function(
         x = x,
         n = a,
         which_cluster_set = which_cluster_set,
+        merged_labels = list(`-/d` = c("-", "d"), `+/++` = c("+", "++")),
         as_list = TRUE
       )
       summaryArgs <- utils::modifyList(summaryArgs, summary..., keep.null = TRUE)
@@ -214,14 +215,21 @@ export_cluster_summary <- function(
   l1_0 <- sapply(names(details),
     function(a)
     {
+      if (is.null(details[[a]][[1]]))
+        return (NULL)
+
       sapply(details[[a]][[1]],
         function(b) { attr(b, "cell_counts") %>% unclass %>%
           as.data.frame %>% tibble::rownames_to_column(var = "cluster") },
         simplify = FALSE)
     }, simplify = FALSE)
+
   l1 <- sapply(names(l1_0),
     function(a)
     {
+      if (is.null(l1_0[[a]]))
+        return (NULL)
+
       r0 <- structure(l1_0[[a]], .Names = paste("events", a, names(l1_0[[a]]), sep = sep))
       rrapply::rrapply(r0,
         f = function(x)
@@ -237,6 +245,9 @@ export_cluster_summary <- function(
 
   l2 <- sapply(names(details), function(a)
     {
+      if (is.null(details[[a]][[2]]))
+        return (NULL)
+
       rrapply::rrapply(details[[a]][[2]],
         f = function(x, .xname)
         {
@@ -249,7 +260,7 @@ export_cluster_summary <- function(
           dplyr::arrange(x, i)
         },
         class = "data.frame", how = "replace")
-    }, simplify = FALSE, USE.NAMES = TRUE) %>%
+    }, simplify = FALSE, USE.NAMES = TRUE) %>% purrr::compact() %>%
     ## N.B. Note the braces around 'structure()' here -- they're necessary!
     {structure(
       .Data = rrapply::rrapply(., f = identity, class = "data.frame", how = "flatten"),
@@ -262,6 +273,9 @@ export_cluster_summary <- function(
   l3 <- sapply(names(details),
     function(a)
     {
+      if (is.null(details[[a]][[3]]))
+        return (NULL)
+
       rrapply::rrapply(details[[a]][[3]],
         f = function(x)
         {
@@ -272,7 +286,7 @@ export_cluster_summary <- function(
           dplyr::arrange(r, i)
         },
         class = "matrix", how = "replace")
-    }, simplify = FALSE, USE.NAMES = TRUE) %>%
+    }, simplify = FALSE, USE.NAMES = TRUE) %>% purrr::compact() %>%
     {structure(
       .Data = rrapply::rrapply(., f = identity, class = "data.frame", how = "flatten"),
       .Names = rrapply::rrapply(.,

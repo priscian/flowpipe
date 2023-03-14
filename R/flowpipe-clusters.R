@@ -204,19 +204,19 @@ make_clusters <- function(
       ## N.B. This list is for 'cytofkit2::cytof_cluster()', which provides additional clustering methods:
       cytof_clusterArgs <- list(
         xdata = x,
-        method  = method,
+        method = method,
         Rphenograph_k = Rphenograph_k
       )
       ## N.B. This list is for 'Rphenograph::Rphenograph()', with only the one method:
-      cytof_clusterArgs <- list(
-        data = x,
-        k = Rphenograph_k
-      )
+      # cytof_clusterArgs <- list(
+      #   data = x,
+      #   k = Rphenograph_k
+      # )
       cytof_clusterArgs <- utils::modifyList(cytof_clusterArgs, cytof_cluster..., keep.null = TRUE)
 
       tryCatch({
-        # do.call(cytofkit2::cytof_cluster, cytof_clusterArgs)
-        do.call(Rphenograph::Rphenograph, cytof_clusterArgs)
+        do.call(cytofkit2::cytof_cluster, cytof_clusterArgs)
+        # do.call(Rphenograph::Rphenograph, cytof_clusterArgs)
       }, error = function(e) { message("\nError: ", e$message); flush.console(); return (NULL) })
     })()
   )
@@ -256,7 +256,10 @@ make_metaclusters <- function(
         mica <- utils::modifyList(c(make_clustersArgs, list(x = x %>% data.matrix)), make_clusters...,
           keep.null = TRUE)
 
-        cluster_ids <- do.call(make_clusters, mica)
+        if (memoise::is.memoised(make_clusters))
+          cluster_ids <- do.call(environment(make_clusters)$`_f`, mica)
+        else
+          cluster_ids <- do.call(make_clusters, mica)
         ## If 'make_clusters()' fails, assign all events to single cluster
         if (is.null(cluster_ids))
           cluster_ids <- rep(1, NROW(x))
@@ -284,7 +287,10 @@ make_metaclusters <- function(
 
   mica <- utils::modifyList(c(make_metaclustersArgs,
     list(x = centroids %>% data.matrix)), make_metaclusters..., keep.null = TRUE)
-  centroid_cluster_id <- do.call(make_clusters, mica)
+  if (memoise::is.memoised(make_clusters))
+    centroid_cluster_id <- do.call(environment(make_clusters)$`_f`, mica)
+  else
+    centroid_cluster_id <- do.call(make_clusters, mica)
   centroid_cluster_id %>% table(dnn = "metaclusters") %>% print
 
   ## Match metaclusters back to individual events
@@ -306,7 +312,9 @@ make_metaclusters <- function(
   event_metacluster_id %>%
     table(useNA = "always", dnn = "event metaclusters") %>% print
 
-  event_metacluster_id
+  #event_metacluster_id
+  ## [11 Jan 2023] Make single relevant return value to move away from 'keystone::cordon()'.
+  structure(event_metacluster_id, cluster_centroids = centroids_clustered)
 }
 
 
@@ -318,15 +326,15 @@ summary.pmm <- function(
   channels = colnames(x),
   merged_labels = list(
     `-/d` = c("-", "d"),
-    `+/++` = c("+", "++")
-    #`d/+` = c("d", "+")
+    `+/++` = c("+", "++"),
+    `d/+` = c("d", "+"),
+    all = c("-", "d", "+", "++")
   ),
-  overall_merged_labels_index = 1:2,
   overall_label_threshold = Inf,
   label_threshold = 0.90,
-  collapse = "", expression_level_sep = ",",
+  collapse = ";", expression_level_sep = ",",
   element_names = TRUE,
-  as_list = FALSE
+  as_list = TRUE
 )
 {
   clusterId <- attr(x, "cluster_id")
@@ -354,7 +362,7 @@ summary.pmm <- function(
       n <- n %>% sort
   }
 
-  pmm <- attr(x, "plus_minus_matrix")[, channels]
+  pmm <- attr(x, "plus_minus_matrix")[, channels, drop = FALSE]
   if (!is.null(overall_label_threshold)) {
     # comp <- (plyr::aaply(pmm, 2, table)/NROW(pmm)) %>%
     #   as.data.frame %>% tibble::rownames_to_column()
@@ -362,15 +370,14 @@ summary.pmm <- function(
       { structure(dplyr::bind_rows(.) %>% as.data.frame, row.names = names(.)) } %>%
       data.matrix %>% `/`(NROW(pmm)) %>%
       as.data.frame %>% tibble::rownames_to_column()
-    ## N.B. I don't want to include *all* merged labels here!
-    plyr::l_ply(names(merged_labels)[overall_merged_labels_index],
+    plyr::l_ply(names(merged_labels),
       function(a)
       {
         comp <<- comp %@>% dplyr::rowwise() %@>% dplyr::mutate(
           !!a := sum(!!!rlang::syms(merged_labels[[a]]))
         )
       })
-    comp <- comp %>% tibble::column_to_rownames() %>% data.matrix
+    comp <- comp %>% `rownames<-`(NULL) %>% tibble::column_to_rownames() %>% data.matrix
     overall_channels <- (comp > overall_label_threshold) %>% apply(1, any) %>% `!`
     channels <- names(overall_channels)[overall_channels]
     if (any(!overall_channels))
@@ -414,7 +421,7 @@ summary.pmm <- function(
         keystone::chunk(NCOL(pmm))
 
     if (!as_list) {
-      r <- sapply(re,
+      r <- sapply(r,
         function(l) { sapply(names(l), function(a) a %_% paste(l[[a]], collapse = expression_level_sep)) %>%
           paste(collapse = collapse) }, simplify = FALSE)
     }
@@ -447,13 +454,14 @@ summary.pmm <- function(
             ##
             ## The names of all columns meeting 'label_threshold' (see below) are returned.
 
-            rr <- ""
+            rr <- NULL # Default for channels that meet *none* of the label thresholds
             if (any(comp >= label_threshold)) {
               rr <- colnames(comp)[comp >= label_threshold]
             }
 
             rr
-          }, simplify = FALSE)
+          }, simplify = FALSE) %>%
+            purrr::compact() # Remove any channels that meet *none* of the label thresholds
 
         if (as_list)
           l
@@ -463,11 +471,13 @@ summary.pmm <- function(
       }, simplify = ifelse(as_list, FALSE, TRUE))
   }
 
-  if (is.logical(element_names)) {
-    if (element_names)
-      names(r) <- as.character(n)
-  } else if (is.character(element_names)) {
-    names(r) <- element_names
+  if (!byEvent) {
+    if (is.logical(element_names)) {
+      if (element_names)
+        names(r) <- as.character(n)
+    } else if (is.character(element_names)) {
+      names(r) <- element_names
+    }
   }
 
   ## If 'as_list = TRUE', 'r' is a list the length of the unique cluster names in the current cluster set,
@@ -477,7 +487,7 @@ summary.pmm <- function(
   ## If 'as_list = FALSE', 'r' is a list the length of the unique cluster names in the current cluster set,
   ##   each of whose elements is a single string displaying a full set of channel phenotypes separated
   ##   according to 'collapse' & 'expression_level_sep'.
-  r
+  structure(r, comp = comp) %>% keystone::add_class("summaryPmm")
 }
 
 ## usage:
@@ -504,6 +514,91 @@ search.default <- function(x, ...)
 search.pmm <- function(
   x, # "pmm" object from 'get_expression_subset()'
   query, # Vector of search terms based on channel names
+  summary... = list(), # Additional arguments to 'summary.pmm()' or a "summaryPmm" object
+  return_type = c("character", "logical", "grid")
+)
+{
+  return_type <- match.arg(return_type)
+
+  if (inherits(summary..., "summaryPmm")) {
+    sm <- summary...
+  } else {
+    summaryArgs <- list(
+      x = x,
+      as_list = TRUE
+    )
+    summaryArgs <- utils::modifyList(summaryArgs, summary..., keep.null = TRUE)
+
+    sm <- do.call(summary, summaryArgs)
+  }
+
+  comp <- attr(sm, "comp")
+  ## Enumerate all possible event states as a named logical vector
+  template <- expand.grid(rownames(comp), colnames(comp), stringsAsFactors = FALSE) %>%
+    plyr::alply(1, function(a) { unlist(a, use.names = FALSE) %>%
+    paste(collapse = "") }) %>% unlist(use.names = FALSE) %>%
+    { structure(rep(FALSE, length(.)), .Names = .) }
+
+  ## Multiple OR-conditional gates lead to multiple queries that need testing;
+  ##   find all possible combinations and OR them to test for a hit.
+  baseQuery <- stringr::str_split(query, "\\s*\\|\\|\\s*") ## Split query elements by "||"
+  allQueries <- expand.grid(baseQuery, stringsAsFactors = FALSE) %>%
+    plyr::alply(1, unlist, use.names = FALSE)
+  mm <- lapply(allQueries,
+    function(a)
+    {
+      sapply(a,
+        function(b) { adist(b, names(template), fixed = TRUE) %>% which.min }, simplify = TRUE) %>%
+        { names(template)[.] }
+    })
+  tests <- lapply(mm,
+    function(a)
+    {
+      test <- template
+      test[a] <- TRUE
+
+      test
+    })
+
+  if (return_type == "grid") {
+    r <- sapply(sm,
+      function(a) {
+        event <- template
+        event[unlist(lapply(names(a), function(b) paste0(b, a[[b]])))] <- TRUE
+
+        event
+      }, simplify = TRUE)
+
+    return (structure(t(r), gates = mm, query = query))
+  }
+
+  r <- lapply(sm,
+    function(a)
+    {
+      event <- template
+      event[unlist(lapply(names(a), function(b) paste0(b, a[[b]])))] <- TRUE
+
+      ## Does this event/cluster include the same phenotypes as the query?
+      Reduce(`||`, sapply(tests, function(b) sum(b & event) == sum(b)))
+    }) %>% unlist(use.names = FALSE)
+
+  if (is_invalid(r))
+    return (NULL)
+
+  if (return_type == "character")
+    return (which(r) %>% as.character)
+
+  r
+}
+
+## usage:
+# r <- search(e[, analysis_channels], c("cd45+/++", "cd3-/d"), summary... = list(overall_label_threshold = Inf, label_threshold = 0.90))
+
+
+#' @export
+search_orig.pmm <- function(
+  x, # "pmm" object from 'get_expression_subset()'
+  query, # Vector of search terms based on channel names
   query_re = "^(%s)$", # RegEx template for search
   summary... = list(), # Additional arguments to 'summary.pmm()'
   ids_only = TRUE
@@ -520,11 +615,19 @@ search.pmm <- function(
   r <- sapply(sm,
     function(a)
     {
-      test <- sapply(names(a), function(b) { if (all(a[[b]] == "")) return (NULL); paste0(b, a[[b]]) }, simplify = FALSE) %>%
-        unlist(use.names = FALSE)
+      test <- sapply(names(a),
+        function(b)
+        {
+          if (all(a[[b]] == "")) return (NULL); paste0(b, a[[b]])
+        }, simplify = FALSE) %>% unlist(use.names = FALSE)
       ## This produces a list whose elements have >1-length vectors for each either-or query:
       baseQuery <- stringr::str_split(query, stringr::fixed("||", TRUE))
-      re <- sapply(baseQuery, function(b) { stringr::regex(sprintf(query_re, paste(rex::escape(b %>% unlist), collapse = "|")), ignore_case = TRUE) }, simplify = FALSE)
+      re <- sapply(baseQuery,
+        function(b)
+        {
+          stringr::regex(sprintf(query_re, paste(rex::escape(b %>% unlist), collapse = "|")),
+            ignore_case = TRUE)
+        }, simplify = FALSE)
       d <- sapply(re, function(b) stringr::str_subset(test, b), simplify = FALSE)
 
       ## Were all the query terms found?
@@ -557,7 +660,12 @@ merge_clusters <- function(
   which_cluster_set = 1, # Column no. or name; NULL or FALSE to set off by-event search
   search... = list(),
   verbose = TRUE,
-  leftover_clusters = NULL
+  leftover_clusters = NULL,
+  make_gating_poster = FALSE, # Logical, or character path to directory for individual plots
+  visualize_channels... = list(),
+  devices = flowpipe:::graphics_devices,
+  #save_plot_fun = grDevices::pdf, save_plot... = list(compress = FALSE)
+  save_plot_fun = grDevices::cairo_pdf, save_plot... = list(onefile = TRUE)
 )
 {
   origClusterId <- attr(x, "cluster_id")
@@ -603,32 +711,238 @@ merge_clusters <- function(
     }
   }
 
+  ### Create plots to visually follow a sequence of predefined gates
+
+  gating_poster_dir <- NULL
+  if (is.character(make_gating_poster)) {
+    gating_poster_dir <- make_gating_poster
+    make_gating_poster <- TRUE
+
+    if (!dir.exists(gating_poster_dir))
+      dir.create(gating_poster_dir, recursive = TRUE)
+  }
+
   tictoc::tic("Search clusters")
 
-  #cc <- sapply(names(clusters),
-  cc <- keystone::psapply(names(clusters),
-    function(a)
-    {
-      searchArgs$query <- clusters[[a]]
-      searchArgs$summary...$label_threshold <- label_thresholds[a]
+  cc <- NULL
+  if (make_gating_poster && byEvent) {
+    ## This probably doesn't dispatch on 'summary' alone because of the name/position of the 1st argument
+    sm <- do.call(summary.pmm, utils::modifyList(searchArgs$summary...,
+      list(x = x), keep.null = TRUE))
 
-      if (verbose) {
-        if (!byEvent)
-          cat(sprintf("Querying for '%s' clusters at %0.2f threshold...", a,
-            searchArgs$summary...$label_threshold))
-        else
+    ## Prepare data set to proceed through & plot predefined gating sequences
+    ## N.B. For size considerations, I might want to plot inside 'sapply()' & return NULL
+    cc_grid <- keystone::psapply(names(clusters),
+      function(a)
+      {
+        searchArgs$query <- clusters[[a]]
+        searchArgs$summary...$label_threshold <- label_thresholds[a]
+        searchArgs$return_type <- "grid"
+        searchArgs$summary... <- sm
+
+        if (verbose) {
           cat(sprintf("Querying for '%s' clusters at event level...", a))
-        utils::flush.console()
+          utils::flush.console()
+        }
+
+        r <- do.call(search, searchArgs)
+
+        if (verbose) {
+          cat(". Done.", fill = TRUE); utils::flush.console()
+        }
+
+        r
+      }, simplify = FALSE)
+
+    ## Ordering the colnames by decreasing length will prevent e.g. a match between
+    ##   "CD4" & "CD45" before the regex search has gotten to "CD45".
+    re <- stringr::regex(stringr::str_flatten(rex::escape(colnames(x)[colnames(x)
+      %>% nchar %>% order(decreasing = TRUE)]), "|"))
+
+    `cc+grobs` <- keystone::psapply(seq_along(cc_grid), # So 'a' can be used for numbering plots
+      function(a)
+      {
+        chunks <- sapply(attr(cc_grid[[a]], "gates"), function(b) keystone::chunk(b, 2), simplify = FALSE)
+        ## The first "chunk" will have the same no. of elements as all the others:
+        tests <- sapply(seq_along(chunks[[1]]),
+          function(b) sapply(chunks, function(g) g[[b]], simplify = FALSE) %>%
+            unique, simplify = FALSE)
+
+        query <- attr(cc_grid[[a]], "query")
+        query_chunks <- keystone::chunk(query, 2)
+        cat(sprintf("%s:", names(cc_grid)[a]), fill = TRUE); print(query); utils::flush.console()
+
+        gated_events <- rep(TRUE, NROW(cc_grid[[a]]))
+        flit <- sapply(seq_along(tests), # So 'b' can be used for numbering plots
+          function(b)
+          {
+            ## 'NCOL(.)' handles the case where the test matrix has only one column:
+            r <- Reduce(`|`, sapply(tests[[b]], function(g) { cc_grid[[a]][, g, drop = FALSE] %>% { `&`(.[, 1], .[, NCOL(.)]) } },
+              simplify = FALSE), accumulate = TRUE)
+
+            ## For each list element, create a biaxial plot
+            grobs <- mapply(function(k, l)
+            {
+              plot_channels <- stringr::str_match_all(paste(k, collapse = " "), re)[[1]] %>% drop %>% unique
+              ## N.B. Uncomment 'event_mask' just below to plot only events selected by the previous gate:
+              visualize_channelsArgs <- list(
+                x = x,
+                channels = list(gated_events & r[[l]]),
+                event_mask = gated_events,
+                extract_gating_channels = function(...) plot_channels,
+                points... = list(col = scales::alpha("red", 0.5)),
+                plot_end_callback = function(...) { # A function will carry its environment along w/ itself
+                  graphics::title(main = sprintf("Gate: %s", paste(query_chunks[[b]], collapse = " & ")), cex.main = 0.9, ...)
+                  if (l > 1) graphics::mtext("(OR'd with previous gate)", cex = 0.9)
+                  graphics::mtext(sprintf("Events: %d/%d", sum(gated_events & r[[l]]), sum(gated_events)),
+                    side = 1, line = -1, cex = 0.8)
+                }
+              )
+              visualize_channelsArgs <-
+                utils::modifyList(visualize_channelsArgs, visualize_channels..., keep.null = TRUE)
+
+              grobs <- list()
+              if (!is.null(gating_poster_dir)) {
+                # plyr::l_ply(seq_along(devices),
+                #   function(d)
+                #   {
+                #     ext <- devices[[d]]$ext; devices[[d]]$ext <- NULL
+                #     ## Reduce resolution for 'png()' etc. to a manageable value:
+                #     if ("res" %in% names(formals(eval(parse(text = names(devices)[d]))))) devices[[d]]$res <- 150
+                #     do.call(eval(parse(text = names(devices)[d])),
+                #       modifyList(devices[[d]],
+                #         list(
+                #           width = 5, height = 5,
+                #           file = sprintf("%s/%03d-%03d%s_gate-%s",
+                #             gating_poster_dir, a, b, letters[l], paste(plot_channels, collapse = "&")) %_% paste0(".", ext)
+                #         )
+                #       )
+                #     )
+                #     dev.control(displaylist = "enable")
+
+                #     do.call(visualize_channels, visualize_channelsArgs)
+
+                #     if (d == length(devices)) {
+                #       grobs <<- append(grobs, list(grDevices::recordPlot()))
+                #     }
+                #     dev.off()
+                #   })
+
+                gatePlotPath <- tempfile()
+                grDevices::png(file = gatePlotPath, bg = "transparent")
+                dev.control(displaylist = "enable")
+
+                do.call(visualize_channels, visualize_channelsArgs)
+
+                gatePlot <- grDevices::recordPlot()
+                invisible(dev.off())
+                unlink(gatePlotPath)
+
+                grobs <- append(grobs, list(gatePlot))
+              } else {
+                do.call(visualize_channels, visualize_channelsArgs)
+              }
+
+              grobs
+            }, tests[[b]], seq_along(r), USE.NAMES = TRUE, SIMPLIFY = FALSE)
+
+            gated_events <<- gated_events & r[[length(r)]]
+            print(table(gated_events)); utils::flush.console()
+
+            grobs
+          }, simplify = FALSE)
+
+        list(gated_events = gated_events, grobs = flit %>% purrr::flatten())
+      }, simplify = FALSE)
+
+    grobs <- NULL
+    if (!is.null(gating_poster_dir)) {
+      grobs <- sapply(`cc+grobs`, function(a) a$grobs, simplify = FALSE) %>% `names<-`(names(cc_grid))
+      ## Keep list of grobs for e.g. single plots, different image types:
+      saveRDS(object = grobs, file = paste(data_dir, "gated-clusters-poster.rds", sep = "/"))
+    }
+    cc <- sapply(`cc+grobs`, function(a) a$gated_events, simplify = FALSE) %>%
+      sapply(function(a) { as.vector(a) %>% which %>% as.character }, simplify = FALSE) %>% `names<-`(names(cc_grid))
+    rm(`cc+grobs`)
+
+    ## Finally, create full gating poster
+    if (!is.null(grobs)) {
+      max_gates <- sapply(grobs, length) %>% max
+      grobs <- sapply(grobs, `length<-`, value = max_gates, simplify = FALSE)
+
+      save_plotArgs <- list(
+        width = min(5.0 * max_gates + 1, 200), # 200 in. is PDF maximum
+        height = min(5.0 * length(grobs) + 1, 200), # 200 in. is PDF maximum
+        #file = paste(gating_poster_dir, "gated-clusters-poster.pdf", sep = "/")
+        filename = paste(gating_poster_dir, "gated-clusters-poster.pdf", sep = "/") # For 'grDevices::cairo_pdf()'
+      )
+      save_plotArgs <- utils::modifyList(save_plotArgs, save_plot..., keep.null = TRUE)
+
+      do.call(save_plot_fun, save_plotArgs)
+
+      ## Create a blank plot for empty grid cells (but not needed for 'cowplot::plot_grid()')
+      if (FALSE) {
+        blankPath <- tempfile()
+        grDevices::png(file = blankPath, bg = "transparent")
+        dev.control(displaylist = "enable")
+        plot.new()
+        blank <- grDevices::recordPlot()
+        invisible(dev.off())
+        unlink(blankPath)
       }
 
-      r <- do.call(search, searchArgs)
+      cowplot::plot_grid(
+        ## This creates a list of "recordedplot" objects:
+        #plotlist = sapply(grobs %>% purrr::flatten(), function(a) if (is.null(a)) list(blank) else a),
+        plotlist = sapply(grobs %>% purrr::flatten(), function(a) if (is.null(a)) list(NULL) else a),
+        ncol = max_gates,
+        hjust = 0, label_x = 0.01,
+        labels = rep("", max_gates * length(grobs)) %>%
+          `[<-`(seq(from = 1, by = max_gates, length.out = length(grobs)), names(grobs)),
+        #label_colour = "darkgreen",
+        label_size = 16
+      ) %>% print
 
-      if (verbose) {
-        cat(". Done.", fill = TRUE); utils::flush.console()
-      }
+      dev.off()
 
-      r
-    }, simplify = FALSE)
+      ## Convert PDF to PNG
+      suppressWarnings(pdftools::pdf_convert(
+        pdf = save_plotArgs$file,
+        format = "png",
+        dpi = 100,
+        filenames = sprintf("%s.png", tools::file_path_sans_ext(save_plotArgs$file))
+      ))
+    }
+  }
+
+  if (is.null(cc)) {
+    cc <- keystone::psapply(names(clusters),
+      function(a)
+      {
+        searchArgs$query <- clusters[[a]]
+        searchArgs$summary...$label_threshold <- label_thresholds[a]
+
+        if (verbose) {
+          if (!byEvent)
+            cat(sprintf("Querying for '%s' clusters at %0.2f threshold...", a,
+              searchArgs$summary...$label_threshold))
+          else
+            cat(sprintf("Querying for '%s' clusters at event level...", a))
+          utils::flush.console()
+        }
+
+        if (byEvent)
+          searchArgs$summary... <- sm
+
+        r <- do.call(search, searchArgs)
+
+        if (verbose) {
+          cat(". Done.", fill = TRUE); utils::flush.console()
+        }
+
+        r
+      }, simplify = FALSE)
+  }
 
   tictoc::toc()
 
@@ -690,6 +1004,9 @@ merge_mutually_exclusive_cols <- function(
 )
 {
   d0 <- cbind(...); d <- rlang::duplicate(d0, shallow = FALSE)
+  if (NCOL(d) < 3)
+    return (d)
+
   repeat {
     merge_comb <- utils::combn(seq(NCOL(d)), 2, simplify = FALSE)
     didMerge <- FALSE; startNcol <- NCOL(d)

@@ -9,7 +9,6 @@ get_channels_by_sample <- function(
   })
 )
 {
-  #l0 <- sapply(x,
   l0 <- keystone::psapply(x,
     function(a)
     {
@@ -203,7 +202,6 @@ rename_fcs_parameters_name_desc <- function(
       })
   ) %>% as.data.frame
 
-  #pp <- sapply(names(path_map),
   pp <- keystone::psapply(names(path_map),
     function(a)
     {
@@ -301,7 +299,6 @@ split_pmm_by_cluster <- function(
       if (!is.matrix(cid))
         cid <- structure(as.matrix(cid), .Dimnames = list(NULL, default_colname))
 
-      #fs <- sapply(colnames(cid),
       fs <- keystone::psapply(colnames(cid),
         function(bc)
         {
