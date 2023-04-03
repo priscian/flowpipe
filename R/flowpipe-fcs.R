@@ -310,7 +310,9 @@ split_pmm_by_cluster <- function(
               function(bb)
               {
                 fcs_path <-
-                  paste(fcs_dir, a, fs::path_sanitize(paste0(paste(bc, names(lff)[[bb]], sep = "#"), ".fcs"), "_"), sep = "/")
+                  paste(fcs_dir, a,
+                    fs::path_sanitize(paste0(paste(stringr::str_trunc(as.character(bc), 31), names(lff)[[bb]], sep = "#"),
+                      ".fcs"), "_"), sep = "/")
                 attr(lff[[bb]], "fcs_path") <<- fcs_path
                 flowCore::keyword(lff[[bb]]) <<- list(`$FIL` = basename(fcs_path))
               })
@@ -319,7 +321,7 @@ split_pmm_by_cluster <- function(
           # sapply(lff, function(x) { attr(x, "fcs_path") })
 
           lff
-        }, simplify = FALSE)
+        }, simplify = FALSE, .parallel = FALSE)
 
       if (export_id_map) {
         export_id_map(

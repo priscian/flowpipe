@@ -263,10 +263,10 @@ prepare_augmented_fcs_data <- function(
   channels_subset = NULL,
   data_dir,
   remove_outliers = TRUE, flowCut... = list(),
-  outfile_prefix = expression(outfile_prefix <- rep("", length(x))),
+  outfile_prefix = expression(rep("", length(x))),
   outfile_suffix = "_pmm", # &c, also possibly 'NULL'
   overwrite = TRUE,
-  ...
+  ... # Additional arguments to 'find_plus_minus_by_channel()'
 )
 {
   if (missing(data_dir))
@@ -278,12 +278,12 @@ prepare_augmented_fcs_data <- function(
   if (is.null(outfile_prefix))
     outfile_prefix <- ""
   else
-    keystone::poly_eval(outfile_prefix)
+    outfile_prefix <- keystone::poly_eval(outfile_prefix)
 
   if (is.null(outfile_suffix))
     outfile_suffix <- ""
   else
-    keystone::poly_eval(outfile_suffix)
+    outfile_suffix <- keystone::poly_eval(outfile_suffix)
 
   asinhTrans <- flowCore::arcsinhTransform(transformationId = "flowpipe-transformation", a = 1, b = b, c = 0)
 

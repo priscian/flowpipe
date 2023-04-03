@@ -401,7 +401,7 @@ plot_common_umap_viz_single <- function(
 
   sample_cluster_centroids <- d %>% as.data.frame %>%
     dplyr::select(-c(channels %>% as.vector)) %>%
-    dplyr::group_by(sample_id, cluster_id) %>%
+    dplyr::group_by(sample_id, cluster_id, .drop = FALSE) %>%
     dplyr::group_modify(
       .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
     dplyr::ungroup()
@@ -451,7 +451,7 @@ plot_common_umap_viz_single <- function(
 
   group_cluster_centroids <- d %>% as.data.frame %>%
     dplyr::select(-c(channels %>% as.vector)) %>%
-    dplyr::group_by(group_id, cluster_id) %>%
+    dplyr::group_by(group_id, cluster_id, .drop = FALSE) %>%
     dplyr::group_modify(
       .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
     dplyr::ungroup()
