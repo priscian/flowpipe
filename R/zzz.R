@@ -3,6 +3,9 @@
   if (!exists(".cm", envir = globalenv()))
     .cm <- memoise::cache_memory()
 
+  bead_normalize <<- memoise::memoise(bead_normalize, cache = .cm) %>%
+    keystone::patch_memoised_for_subcaching()
+
   get_channels_by_sample <<- memoise::memoise(get_channels_by_sample, cache = .cm) %>%
     keystone::patch_memoised_for_subcaching()
 

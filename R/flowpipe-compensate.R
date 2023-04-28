@@ -6,7 +6,7 @@ compensate <- function(
   ...
 )
 {
-  r <- sapply(pp,
+  r <- keystone::psapply(pp,
     function(p)
     {
       ff <- flowCore::read.FCS(p, transformation = FALSE, truncate_max_range = FALSE)
@@ -36,17 +36,3 @@ compensate <- function(
   ## 'r' is a vector of new file paths named after the original paths
   r
 }
-
-
-#' @export
-prelim_compensate_expr <- expression({
-  compensateArgs <- list(
-    x = pp,
-    output_dir = paste(data_dir, "compensated", sep = "/")
-  )
-  compensateArgs <- utils::modifyList(compensateArgs, compensate..., keep.null = TRUE)
-
-  r <- do.call(compensate, compensateArgs)
-  pp[names(r)] <- r
-  pp <- structure(pp, .Names = pp %>% as.vector)
-})

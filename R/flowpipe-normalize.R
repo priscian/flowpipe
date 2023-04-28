@@ -1,136 +1,115 @@
-## Bead-normalization using the "premessa" functions
-## A simplified drop-in replacement for 'premessa::normalize_folder()'
-##   w/ additional flexibility in specifying files to process
+## Bead-normalization using the "CATALYST" functions
+CATALYST_normCytof <- function(
+  x, # flowCore::flowFrame
+  beads,
+  prepData... = list(), # Other arguments to 'CATALYST::prepData()'
+  normCytof... = list(), # Other arguments to 'CATALYST::normCytof()'
+  seed = 666 # Try changing this if 'CATALYST::normCytof()' fails
+)
+{
+  prepDataArgs <- list(
+    x = flowCore::flowSet(x),
+    transform = TRUE,
+    cofactor = 5,
+    by_time = FALSE,
+    FACS = FALSE
+  )
+  prepDataArgs <- utils::modifyList(prepDataArgs, prepData..., keep.null = TRUE)
+
+  sce <- do.call(CATALYST::prepData, prepDataArgs)
+
+  sce <- CATALYST::prepData(
+    flowCore::flowSet(x),
+    transform = TRUE,
+    cofactor = prepDataArgs$cofactor,
+    by_time = FALSE,
+    FACS = FALSE
+  )
+
+  normCytofArgs <- list(
+    x = sce,
+    beads = beads,
+    remove_beads = FALSE,
+    overwrite = TRUE,
+    transform = FALSE,
+    cofactor = prepDataArgs$cofactor,
+    plot = FALSE,
+    verbose = TRUE
+  )
+  normCytofArgs <- utils::modifyList(normCytofArgs, normCytof..., keep.null = TRUE)
+
+  if (!is.null(seed))
+    set.seed(seed)
+  res <- do.call(CATALYST::normCytof, normCytofArgs)
+
+  ### Restore updated expression matrix to the flowFrame 'x'
+
+  restored_colnames <- SummarizedExperiment:::rowData(res$data)$channel_name
+  colData <- SingleCellExperiment::colData(res$data)
+  new_exprs <- res$data@assays@data$exprs %>% t %>%
+    rev_asinh(0, 1/prepDataArgs$cofactor) %>%
+    `colnames<-`(restored_colnames)
+  rm(res)
+  ## Restore "non-mass" channels from 'SingleCellExperiment' object 'sce'
+  new_exprs <- cbind(new_exprs,
+    SingleCellExperiment:::int_colData(sce) %>% `[`(sapply(., is.numeric)) %>%
+      data.matrix) %>% `[`(, flowCore::colnames(x))
+  ## Remove bead & doublet events identified by 'CATALYST::normCytof()'
+  keep_index <- !(colData$remove | colData$is_bead)
+  new_exprs <- new_exprs[keep_index, ]
+
+  flowCore::exprs(x) <- new_exprs
+
+  x
+}
+
+
+#' @export
+bead_normalize_single <- function(
+  input_path,
+  output_dir = ".", create_output_dir = TRUE,
+  outfile_prefix = "", outfile_suffix = "", # also possibly 'NULL'
+  ## "dvs" (for bead masses 140, 151, 153, 165, 175) or
+  ##   "beta" (for masses 139, 141, 159, 169, 175) or numeric vector of masses:
+  beads = c("dvs", "beta"),
+  ...
+)
+{
+  ff <- flowCore::read.FCS(input_path, transformation = FALSE, truncate_max_range = FALSE)
+
+  ff <- CATALYST_normCytof(x = ff, beads = beads, ...)
+
+  if (create_output_dir && !dir.exists(output_dir))
+    dir.create(output_dir, recursive = TRUE)
+
+  fcsFileName <-
+    sprintf(paste0("%s", basename(input_path), "%s.fcs"), outfile_prefix, outfile_suffix)
+  fcsFilePath <- paste(output_dir, fcsFileName, sep = "/")
+  flowCore::keyword(ff) <- list(`$FIL` = basename(fcsFilePath))
+  cat(sprintf("Saving FCS file %s...", fcsFileName)); utils::flush.console()
+  flowCore::write.FCS(ff, filename = fcsFilePath)
+  cat(". Done.", fill = TRUE)
+
+  fcsFilePath
+}
+
+
 #' @export
 bead_normalize <- function(
-  wd, # Directory path or vector of file paths
-  output.dir.name, # For these args, see '?premessa::normalize_folder'
-  ## N.B. Element names of 'beads.gates' must be full file paths. See '?premessa:::calculate_baseline'.
-  beads.gates,
-  beads.type, # Either "Fluidigm" or "Beta"
-  baseline = NULL,
-  pattern = "(?i)\\.fcs$", list_files... = list(),
-  read.FCS... = list()
+  input_path, # Any vector of FCS files
+  output_dir = ".", # Vector of output directories, recycled to 'length(input_path)',
+  ... # Arguments passed on to 'bead_normalize_single()'
 )
 {
-  ## 'pp' will be a vector of FCS file paths to be normalized to 'output.dir.name'.
-  pp <- NULL
-  de <- dir.exists(wd)
-  if (any(de)) {
-    pp <- c(pp, sapply(wd[de],
-      function(a)
-      {
-        list_filesArgs <- list(
-          path = a,
-          pattern = pattern
-        )
-        list_filesArgs <- utils::modifyList(list_filesArgs, list_files..., keep.null = TRUE)
+  outputDirs <- structure(rep(output_dir, length.out = length(input_path)), .Names = names(input_path))
 
-        do.call(keystone::list_files, list_filesArgs)
-      }, simplify = FALSE)) %>% unlist(use.names = FALSE)
-
-    pp
-  }
-  if (any(!de)) {
-    pp <- c(pp, wd[!de][file.exists(wd[!de])])
-  }
-
-  baseline.data <- NULL
-  if (is.null(baseline))
-    baseline.data <- calculate_baseline(wd = pp, beads.type, files.type = "data", beads.gates)
-  else
-    baseline.data <- calculate_baseline(baseline, beads.type, files.type = "beads")
-
-  if (!dir.exists(output.dir.name))
-    dir.create(output.dir.name, recursive = TRUE)
-
-  read.FCSArgs <- list(
-    filename = NULL,
-    transformation = "linearize",
-    truncate_max_range = TRUE
-  )
-
-  ll <- lapply(names(beads.gates),
-    function(f.name)
+  pp <- keystone::psapply(seq_along(input_path),
+    function(a)
     {
-      read.FCSArgs$filename <- f.name
-      read.FCSArgs <- utils::modifyList(read.FCSArgs, read.FCS..., keep.null = TRUE)
+      bead_normalize_single(input_path = input_path[a], output_dir = outputDirs[a], ...)
+    }, simplify = FALSE)
 
-      fcs <- do.call(read.FCS, ablineArgs)
-      #fcs <- flowCore::read.FCS(f.name)
+  ret_val <- structure(pp %>% unlist %>% as.vector)
 
-      beads.cols <- premessa:::find_bead_channels(fcs, beads.type)
-      beads.cols.names <- premessa:::get_parameter_name(fcs, beads.cols)
-      dna.col <- premessa:::find_dna_channel(fcs)
-      m <- flowCore::exprs(fcs)
-      beads.events <- premessa:::identify_beads(asinh(m/5), beads.gates[[f.name]], beads.cols.names, dna.col)
-      beads.data <- m[beads.events, ]
-      norm.res <- premessa:::correct_data_channels(m, beads.data, baseline.data, beads.cols.names)
-      fcs <- flowCore::read.FCS(f.name, which.lines = 1)
-      m <- NULL
-      gc()
-      m.normed <- norm.res$m.normed
-      m.normed <- cbind(m.normed, beadDist = premessa:::get_mahalanobis_distance_from_beads(m.normed, beads.events, beads.cols.names))
-
-      out.name <- paste(tools::file_path_sans_ext(basename(f.name)), "normalized.fcs", sep = "_")
-      out.path <- paste(out.dir.path, out.name, sep = "/")
-      flowCore::keyword(fcs) <- list(`$FIL` = out.name)
-      premessa::write_flowFrame(premessa::as_flowFrame(m.normed, fcs), out.path)
-
-      out.path
-    }) %>% unlist(use.names = FALSE)
-
-  ## Return value is a vector of new file paths named after the original paths
-  structure(ll, .Names = names(beads.gates))
+  ret_val
 }
-
-
-## A drop-in replacement for 'premessa::calculate_baseline()' that takes a vector of file paths
-calculate_baseline <- function(
-  wd, # Vector of file paths
-  beads.type,
-  files.type = c("data", "beads"),
-  ## N.B. Element names of 'beads.gates' must be full file paths. See '?premessa:::calculate_baseline'.
-  beads.gates = NULL
-)
-{
-  files.type <- match.arg(files.type)
-  files.list <- switch(files.type,
-    data = names(beads.gates),
-    beads = wd
-  )
-  ret <- lapply(files.list,
-    function(f.name) {
-      fcs <- flowCore::read.FCS(f.name)
-      beads.cols.names <- premessa:::find_beads_channels_names(fcs, beads.type)
-      dna.col <- premessa:::find_dna_channel(fcs)
-      m <- flowCore::exprs(fcs)
-      if (files.type == "data") {
-        m.transformed <- asinh(m/5)
-        sel <- premessa:::identify_beads(m.transformed, beads.gates[[f.name]], beads.cols.names, dna.col)
-      }
-      else {
-        sel <- rep(TRUE, nrow(m))
-      }
-
-      return (m[sel, beads.cols.names])
-    })
-  ret <- Reduce("rbind", ret)
-  ret <- apply(ret, 2, median)
-
-  return (ret)
-}
-
-
-#' @export
-prelim_bead_normalize_expr <- expression({
-  bead_normalizeArgs <- list(
-    wd = pp,
-    output.dir.name = paste(data_dir, "normalized", sep = "/")
-  )
-  bead_normalizeArgs <- utils::modifyList(bead_normalizeArgs, bead_normalize..., keep.null = TRUE)
-
-  r <- do.call(bead_normalize, bead_normalizeArgs)
-  pp[names(r)] <- r
-  pp <- structure(pp, .Names = pp %>% as.vector)
-})
