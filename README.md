@@ -20,6 +20,7 @@ Well, that's not quite *all* you need. Please continue reading for more details.
 1. [Outline of analysis steps](#outline-of-analysis-steps)
 1. [Annotated example analysis](#annotated-example-analysis)
     * [Header material](#header-material)
+    * [Gather FCS files and check](#gather-fcs-files-and-check)
 1. [Notes](#notes)
 1. [References](#references)
 
@@ -54,7 +55,7 @@ Here's the outline of a typical *flowpipe* workflow:
 
 This section will provide a detailed walkthrough of a *flowpipe* analysis of FCS files from a mass cytometry (CyTOF) experiment. The analyst should be familiar enough with the R programming environment to call functions, to understand the variety of R data types and objects, to make changes in this walkthrough appropriate to their own experiment, and sometimes to provide ad hoc code snippets for bridging parts of a *flowpipe* analysis together. These requirements shouldn't be onerous; *flowpipe* is designed robustly to do most of the common tedious and diffcult tasks associated with cytometry data analysis.
 
-We'll use data stored on the [FlowRepository](https://flowrepository.org/) [[Spidlen &al 2012](#spidlen-et-al-2012)] from the very instructive paper "A Beginner's Guide To Analyzing and Visualizing Mass Cytometry Data" [[Kimball &al 2018](#kimball-et-al-2018)]. For convenience, we've provided this data in a single zipped archive [here](https://rochester.box.com/s/yu4m11rwyh5aeb2cgrkqssmk5ljzlsa9); if you wish to reproduce the walkthrough, download the archive, unzip it into a single directory[[*](#note-asterisk)], and keep track of where it's stored on your file system.
+We'll use data stored on the [FlowRepository](https://flowrepository.org/) [[Spidlen &al 2012](#spidlen-et-al-2012)] from the very instructive paper "A Beginner's Guide To Analyzing and Visualizing Mass Cytometry Data" [[Kimball &al 2018](#kimball-et-al-2018)]. For convenience, we've provided this data in a single zipped archive [here](https://dl.dropboxusercontent.com/s/wd6g2ffstza8oc4/FlowRepository_FR-FCM-ZYDW_files.zip); if you wish to reproduce the walkthrough, download the archive, unzip it into a single directory[[*](#note-asterisk)], and keep track of where it's stored on your file system.
 
 Let's step through the code and discuss it one section at a time; we'll provide the complete code file afterwards.
 
@@ -70,6 +71,7 @@ rm(list = ls(all.names = FALSE))
 
 options(keystone_parallel = TRUE)
 
+# setwd("your/preferred/working/directory")
 data_dir <- "./data"
 if (!dir.exists(data_dir)) dir.create(data_dir, recursive = TRUE)
 .cm <- memoise::cache_filesystem(path = data_dir)
@@ -81,6 +83,18 @@ if (!require("flowpipe")) {
 
 report_dir <- "./report"
 image_dir <- paste(report_dir, "images", sep = "/")
+```
+
+### Gather FCS files and check
+
+```r
+## Find paths of all FCS files in the give directory(-ies)
+fcs_files <- keystone::list_files("C:/Users/priscian/Downloads/cytometry/FlowRepository_FR-FCM-ZYDW_files",
+  "\\.fcs$", recursive = FALSE, ignore.case = TRUE, full.names = TRUE)
+
+## Check channel names & descriptions among FCS files
+## Add argument 'clear_1_cache = TRUE' to clear cache & rerun
+cbs <- get_channels_by_sample(x = fcs_files, SUFFIX = "_cbs", clear_1_cache = FALSE)
 ```
 
 ***

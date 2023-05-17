@@ -626,7 +626,7 @@ plot_common_umap_viz <- function(
 #' @export
 plot_cell_counts <- function(
   x, # "pmm" object from 'get_expression_subset()'
-  pmm_files, # Vector of file paths of "pmm" objects
+  pmm_files, # Vector of file paths of "pmm" objects, but could also be FCS files
   m, # metadata
   sample_name_re = "^.*$",
   plot_palette = randomcoloR::distinctColorPalette,
@@ -648,14 +648,7 @@ plot_cell_counts <- function(
 
   ##### Cell counts #####
 
-  cellCounts <- keystone::psapply(pmm_files,
-    function(a)
-    {
-      e <- new.env()
-      load(a, envir = e)
-
-      flowCore::exprs(e$tff) %>% NROW
-    }, simplify = TRUE)
+  cellCounts <- count_events(pmm_files)
   cell_counts <- cellCounts
   names(cell_counts) <- tools::file_path_sans_ext(basename(names(cell_counts))) %>%
     stringr::str_extract(sample_name_re) %>% rename_duplicates
@@ -671,7 +664,12 @@ plot_cell_counts <- function(
   )
   ggdf <- dplyr::left_join(
     ggdf,
-    structure(list(sample_id = names(tge), gated_cell_counts = as.vector(tge)), row.names = c(NA, length(tge)), class = "data.frame"),
+    structure(
+      list(
+        sample_id = names(tge),
+        gated_cell_counts = as.vector(tge)
+      ), row.names = c(NA, length(tge)), class = "data.frame"
+    ),
     by = "sample_id"
   )
 

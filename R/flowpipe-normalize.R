@@ -96,7 +96,7 @@ bead_normalize_single <- function(
 
 #' @export
 bead_normalize <- function(
-  input_path, # Any vector of FCS files
+  input_path, # Any vector of FCS file paths
   output_dir = ".", # Vector of output directories, recycled to 'length(input_path)',
   ... # Arguments passed on to 'bead_normalize_single()'
 )

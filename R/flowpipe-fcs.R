@@ -374,3 +374,30 @@ export_id_map <- function(
 
   d
 }
+
+
+#' @export
+count_events <- function(
+  x, # Any vector of FCS or PMM file paths
+  ...
+)
+{
+  keystone::psapply(
+    x,
+    function(a)
+    {
+      rv <- NA_integer_
+      fileExt <- tools::file_ext(a)
+
+      if (stringr::str_detect(fileExt, stringr::regex("fcs$", ignore_case = TRUE))) {
+        rv <- nrow(flowCore::read.FCS(a))
+      } else if (stringr::str_detect(fileExt, stringr::regex("rdata$", ignore_case = TRUE))) {
+        e <- new.env()
+        load(a, envir = e)
+
+        rv <- flowCore::exprs(e$tff) %>% NROW
+      }
+
+      rv
+    }, ...)
+}
