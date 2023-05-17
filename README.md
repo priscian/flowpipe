@@ -88,7 +88,7 @@ image_dir <- paste(report_dir, "images", sep = "/")
 ### Gather FCS files and check
 
 ```r
-## Find paths of all FCS files in the give directory(-ies)
+## Find paths of all FCS files in the given directory(-ies)
 fcs_files <- keystone::list_files("C:/Users/priscian/Downloads/cytometry/FlowRepository_FR-FCM-ZYDW_files",
   "\\.fcs$", recursive = FALSE, ignore.case = TRUE, full.names = TRUE)
 
