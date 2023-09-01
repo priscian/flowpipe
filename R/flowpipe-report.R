@@ -297,8 +297,17 @@ export_cluster_summary <- function(
 
   l <- c(l1, l2, l3)
 
-  ## N.B. This doesn't guarantee uniqueness, but worry about it later....
-  rio::export(l %>% `names<-`(stringr::str_trunc(names(.), 31, "center")), spreadsheet_path, ...)
+  sheetNames <- stringr::str_trunc(names(l), 31, "center")
+  ## Rename sheets w/ duplicated names
+  duplicateNames <- sheetNames %>% intersect(.[duplicated(.)])
+  for (i in duplicateNames) {
+    dupIndex <- which(sheetNames == i)
+    ## Replace w/ sequential numbers:
+    sheetNames[dupIndex] <-
+      sapply(seq_along(dupIndex),
+        function(j) sprintf("%s%01d", stringr::str_trunc(sheetNames[dupIndex[j]], 30, ellipsis = ""), j))
+  }
+  rio::export(l %>% `names<-`(sheetNames), spreadsheet_path, ...)
 
   l
 }

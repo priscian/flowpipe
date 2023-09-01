@@ -20,7 +20,7 @@ Well, that's not quite *all* you need. Please continue reading for more details.
 1. [Outline of analysis steps](#outline-of-analysis-steps)
 1. [Annotated example analysis](#annotated-example-analysis)
     * [Header material](#header-material)
-    * [Gather FCS files and check](#gather-fcs-files-and-check)
+    * [Gather FCS files and check them](#gather-fcs-files-and-check-them)
 1. [Notes](#notes)
 1. [References](#references)
 
@@ -46,7 +46,7 @@ Here's the outline of a typical *flowpipe* workflow:
 1. Search for investigator-defined clusters (e.g. T cells, neutrophils, monocytes) & assign events to them
     * Two methods: find & merge PG clusters; biaxial gating down to population
 1. Differential abundance analysis by cluster, based on user-supplied clinical metadata
-    * Evaluates differential abundance in each cluster using a negative-binomial GLM (generalized linear model), comparing cell counts in each cluster for each condition relative to a control group & producing a log₂ fold change
+    * Evaluates differential abundance in each cluster using a negative-binomial GLM (generalized linear model), comparing cell counts in each cluster for each condition relative to a control group & producing a [log₂ fold change](https://stackoverflow.com/questions/70696602/how-to-interpret-log-fold-change-log2fc-on-two-cases/70818010#70818010)
 1. These steps are all accompanied by density plots, heatmaps, & UMAPs along the way, & a PDF report
 
 ***
@@ -63,7 +63,7 @@ Let's step through the code and discuss it one section at a time; we'll provide 
 
 ### Header material
 
-This is a code that's common to all *flowpipe* analyses.
+This is code that's common to all *flowpipe* analyses.
 
 ```r
 ## source("./kimball-&al-2018.R", keep.source = FALSE)
@@ -85,7 +85,7 @@ report_dir <- "./report"
 image_dir <- paste(report_dir, "images", sep = "/")
 ```
 
-### Gather FCS files and check
+### Gather FCS files and check them
 
 ```r
 ## Find paths of all FCS files in the given directory(-ies)
@@ -95,6 +95,27 @@ fcs_files <- keystone::list_files("C:/Users/priscian/Downloads/cytometry/FlowRep
 ## Check channel names & descriptions among FCS files
 ## Add argument 'clear_1_cache = TRUE' to clear cache & rerun
 cbs <- get_channels_by_sample(x = fcs_files, SUFFIX = "_cbs", clear_1_cache = FALSE)
+```
+
+The function `get_channels_by_sample()` compiles channel names and descriptions from the experiment's FCS files into a tabular `data.frame`; you can check this table to insure that channels are labeled correctly among all the samples. For the [Kimball &al 2018](#kimball-et-al-2018) data we're working on here, this is how the `cbs` variable looks:
+
+```r
+> cbs %>% tibble::as_tibble()
+# A tibble: 62 × 10
+   name         desc_01  desc_02  desc_03  desc_04  desc_05  desc_06  desc_07  desc_08  desc_09
+   <chr>        <chr>    <chr>    <chr>    <chr>    <chr>    <chr>    <chr>    <chr>    <chr>
+ 1 Time         <NA>     <NA>     <NA>     <NA>     <NA>     <NA>     <NA>     <NA>     <NA>
+ 2 Event_length <NA>     <NA>     <NA>     <NA>     <NA>     <NA>     <NA>     <NA>     <NA>
+ 3 Y89Di        89Y_CD45 89Y_CD45 89Y_CD45 89Y_CD45 89Y_CD45 89Y_CD45 89Y_CD45 89Y_CD45 89Y_CD45
+ 4 Pd102Di      102Pd    102Pd    102Pd    102Pd    102Pd    102Pd    102Pd    102Pd    102Pd
+ 5 Rh103Di      103Rh    103Rh    103Rh    103Rh    103Rh    103Rh    103Rh    103Rh    103Rh
+ 6 Pd104Di      104Pd    104Pd    104Pd    104Pd    104Pd    104Pd    104Pd    104Pd    104Pd
+ 7 Pd105Di      105Pd    105Pd    105Pd    105Pd    105Pd    105Pd    105Pd    105Pd    105Pd
+ 8 Pd106Di      106Pd    106Pd    106Pd    106Pd    106Pd    106Pd    106Pd    106Pd    106Pd
+ 9 Pd108Di      108Pd    108Pd    108Pd    108Pd    108Pd    108Pd    108Pd    108Pd    108Pd
+10 Pd110Di      110Pd    110Pd    110Pd    110Pd    110Pd    110Pd    110Pd    110Pd    110Pd
+# ℹ 52 more rows
+# ℹ Use `print(n = ...)` to see more rows
 ```
 
 ***

@@ -20,13 +20,15 @@ get_channels_by_sample <- function(
 
   ## Are all the channels given in the same order? If no, 'flowCore::read.flowSet()' might fail.
   ## Decide yes or no by transitivity of equality.
-  commonChannelOrder <- sapply(l0, function(a){ a$name }, simplify = FALSE) %>% {
-    flit <- .
-    seq(length(flit)) %>% utils::combn(m = 2) %>% keystone::dataframe() %>% as.list %>%
-      sapply(function(b) { all(flit[[b[1]]] == flit[[b[2]]]) }) %>% all
+  if (length(l0) > 1) {
+    commonChannelOrder <- sapply(l0, function(a){ a$name }, simplify = FALSE) %>% {
+      flit <- .
+      seq(length(flit)) %>% utils::combn(m = 2) %>% keystone::dataframe() %>% as.list %>%
+        sapply(function(b) { all(flit[[b[1]]] == flit[[b[2]]]) }) %>% all
+    }
+    if (!commonChannelOrder)
+      warning("Some samples have their channels ordered differently from the other samples.", immediate. = TRUE)
   }
-  if (!commonChannelOrder)
-    warning("Some samples have their channels ordered differently from the other samples.", immediate. = TRUE)
 
   l <- rlang::duplicate(l0, shallow = FALSE)
   ## N.B. Use expression 'keep_sans_desc' to make changes to 'l' before continuing.

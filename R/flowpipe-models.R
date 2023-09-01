@@ -33,18 +33,31 @@ do_differential_expression_single <- function(
   ids <- ids[keepEvents]
   clusterId <- clusterId[keepEvents]
 
-  cell_counts <- table(clusterId, ids)
-  ## Convert to percentages if samples are of uneven sizes (i.e. assume always)
-  cell_counts_percent <- (cell_counts /
-    matrix(rep(table(ids), NROW(cell_counts)), nrow = NROW(cell_counts), byrow = TRUE)) * 100
+  cell_counts_abo <- table(clusterId, ids)
+  ## Zero counts for all clusters for any sample will cause the model to fail:
+  if (all(colSums(cell_counts_abo) == 0)) {
+    cell_counts <- NULL
+  } else {
+    cell_counts <- cell_counts_abo[, colSums(cell_counts_abo) != 0, drop = FALSE]
+    if (any(colSums(cell_counts_abo) == 0)) {
+      warning(sprintf("No counts for all clusters for all samples: %d samples -> %d",
+        NCOL(cell_counts_abo), NCOL(cell_counts)), immediate. = TRUE)
+    }
+    ## Convert to percentages if samples are of uneven sizes (i.e. assume always)
+    cell_counts_percent <- (cell_counts /
+      matrix(rep(table(ids)[colnames(cell_counts)], NROW(cell_counts)), nrow = NROW(cell_counts), byrow = TRUE)) * 100
+  }
 
   fit <- tryCatch({
+    if (is.null(cell_counts))
+      stop("No counts for all clusters for all samples")
+
     #dge <- edgeR::DGEList([cell_counts|cell_counts_percent], lib.size = table(ids))
     dge <- edgeR::DGEList(cell_counts_percent)
     ## N.B. 'left_join()' only here so that the design matrix matches up w/ the "cell_counts" table:
     design <- stats::model.matrix(model_formula,
       data = m %>% dplyr::left_join(structure(keystone::dataframe(rownames(dge$samples)), .Names = metadata_id_var), .))
-    y <- edgeR::estimateDisp(dge, design)
+    y <- edgeR::estimateDisp(y = dge, design = design)
 
     glmQLFitArgs <- list(
       y = y,

@@ -53,6 +53,10 @@
 
   split_pmm_by_cluster <<- memoise::memoise(split_pmm_by_cluster, cache = .cm) %>%
     keystone::patch_memoised_for_subcaching()
+
+  ## For use in '`[.pmm`()'
+  RBasicClasses <<- keystone::R_basic_classes() %>%
+    sapply(class) %>% as.vector %>% unique #%>% c("matrix", "array")
 }
 
 

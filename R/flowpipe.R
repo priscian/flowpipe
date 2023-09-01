@@ -361,6 +361,8 @@ prepare_augmented_fcs_data <- function(
 }
 
 
+RBasicClasses <- NULL
+
 ## Assure that 'exprs' subsetting includes the plus-minus matrix.
 #' @export
 `[.pmm` <- function(x, ...)
@@ -381,7 +383,11 @@ prepare_augmented_fcs_data <- function(
     }
     attr(y, "cluster_id") <- cluster_id
   }
-  class(y) <- class(x)
+  class(y) <- setdiff(class(x), RBasicClasses)
+  if (is_invalid(dim(y))) {
+    ## Resolves problems caused by not removing these classes from un'dim'med vectors
+    class(y) <- setdiff(class(x), c("matrix", "array"))
+  }
 
   ## Transfer unchanged attributes to 'y'
   uncommonAttributes <- setdiff(names(attributes(x)), names(attributes(y))) %>%
@@ -598,6 +604,17 @@ get_expression_subset <- function(
           dpi = 100,
           filenames = sprintf("%s.png", tools::file_path_sans_ext(save_plotArgs$file))
         ))
+
+        ## Resize very large PNGs to fit into LaTeX documents
+        local({
+          filePath <- sprintf("%s.png", tools::file_path_sans_ext(save_plotArgs$file))
+          i <- magick::image_read(filePath)
+          ii <- magick::image_info(i)[, c("width", "height")]
+          if (any(ii %>% unlist > 16384)) {
+            ni <- magick::image_scale(i, ifelse(ii$width > 16384, "", "x") %_% "16384")
+            magick::image_write(ni, sprintf("%s-resized.%s", tools::file_path_sans_ext(filePath), tools::file_ext(filePath)))
+          }
+        })
       }
     }
   }
@@ -609,7 +626,7 @@ get_expression_subset <- function(
   e <- purrr::reduce(ss, rbind)
   pmm <- purrr::reduce(sapply(ss, function(a) attr(a, "plus_minus_matrix"), simplify = FALSE), rbind); rownames(pmm) <- NULL
   attr(e, "plus_minus_matrix") <- pmm
-  attr(e, "id_map") <- structure(pmm$id %>% unique, .Names = x)
+  attr(e, "id_map") <- structure(pmm$id %>% unique, .Names = x[pmm$id %>% unique])
   attr(e, "total_gated_events") <- sapply(ss, function(a) attr(a, "total_gated_events"))
   class(e) <- class(ss[[1]])
 
