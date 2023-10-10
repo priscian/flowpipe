@@ -1,6 +1,6 @@
 Package: flowpipe
 Title: Flow & Mass Cytometry Analysis Pipeline
-Version: 0.12.0
+Version: 0.13.0
 Authors@R: person("Jim", "Java", email = "james.j.java@gmail.com", role = c("aut", "cre"),
   comment = c(ORCID = "0000-0002-8254-3177"))
 Description: Flow & mass cytometry analysis pipeline.
@@ -20,4 +20,4 @@ License: Artistic-2.0
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.0
+RoxygenNote: 7.2.3

@@ -210,6 +210,7 @@ get_fcs_expression_subset <- function(
   channels_by_sample = NULL # "cbs" object
 )
 {
+  ## Transformation is 'asinh(a + b * x) + c'; a = shift about 0, b = scale factor, c = additive constant
   asinhTrans <- flowCore::arcsinhTransform(transformationId = "flowpipe-transformation", a = 1, b = b, c = 0)
 
   if (!is.null(seed))
@@ -218,7 +219,13 @@ get_fcs_expression_subset <- function(
   l <- keystone::psapply(x,
     function(a)
     {
-      ff <- flowCore::read.FCS(a, transformation = FALSE, truncate_max_range = FALSE)
+      if (inherits(a, "flowFrame")) {
+        ff <- a
+        baseName <- a %>% flowCore::keyword() %>% `$`("FILE") %>% basename
+      } else {
+        ff <- flowCore::read.FCS(a, transformation = FALSE, truncate_max_range = FALSE)
+        baseName <- basename(a)
+      }
       if (is.null(channels_subset))
         channels_subset <- flowCore::colnames(ff)
       ff <- ff[, channels_subset]
@@ -229,7 +236,7 @@ get_fcs_expression_subset <- function(
         transList <- flowCore::transformList(transformChannels, asinhTrans)
         tff <- flowCore::transform(ff, transList)
       }
-      e <- cbind(id = tools::file_path_sans_ext(basename(a)), flowCore::exprs(tff) %>%
+      e <- cbind(id = tools::file_path_sans_ext(baseName), flowCore::exprs(tff) %>%
         `[`(sample(NROW(.), pmin(sample_size, NROW(.))), ) %>% keystone::dataframe())
 
       e
