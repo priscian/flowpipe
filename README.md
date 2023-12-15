@@ -305,7 +305,7 @@ Clambey LO 110116 IL10KO lung 1_01,IL10KO
 Clambey LO 110116 IL10KO lung 2_01,IL10KO
 Calmbey LO 11022016 IL10 KO lung 3_01,IL10KO
 Clambey LO 11022016 IL10 KO lung 4_01,IL10KO', comment.char = "%") %>%
-  dplyr::mutate(group = factor(group)) -> # N.B. May have to reorder levels here, e.g. via package "forcats"
+  dplyr::mutate(group = factor(group)) -> # May have to reorder levels here, e.g. via "forcats"
   metadata_i
 
 ## RE to 'stringr::str_extract()' concise sample ID from 'id_map' attribute in
