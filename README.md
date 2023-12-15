@@ -198,7 +198,7 @@ pregating_channels <- cbs_check %>%
     (!is.na(desc_01) | stringr::str_detect(name, stringr::regex("time|event_length",
       ignore_case = TRUE))) &
     stringr::str_detect(attr(., "channels_by_sample_full_desc")$desc_01,
-      ## The 1st part of the RE here, negative lookahead, insures that "Time" & channels containing "_" are kept:
+      ## 1st part of RE is negative lookahead, keeps "Time" & channels containing "_":
       stringr::regex(
         "^(?!.*(_|time))|beads|_eq|barcode|bkg|bckg|background|intercalator|viability|live-dead",
         ignore_case = TRUE), negate = TRUE)) %>%
