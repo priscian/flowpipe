@@ -308,9 +308,11 @@ Clambey LO 11022016 IL10 KO lung 4_01,IL10KO', comment.char = "%") %>%
   dplyr::mutate(group = factor(group)) -> # N.B. May have to reorder levels here, e.g. via package "forcats"
   metadata_i
 
-## RE to 'stringr::str_extract()' concise sample ID from 'id_map' attribute in "pmm" object from 'get_expression_subset()'
+## RE to 'stringr::str_extract()' concise sample ID from 'id_map' attribute in
+##   "pmm" object from 'get_expression_subset()'
 sample_name_re <- "C(al|la)mbey.*?_\\d{2}"
-## sort(stringr::str_extract(attr(e, "id_map") %>% names, sample_name_re)) == sort(metadata$id) # Should all be TRUE
+## sort(stringr::str_extract(attr(e, "id_map") %>% names, sample_name_re)) == sort(metadata$id)
+## Should all be TRUE
 ```
 
 Our metadata here is created by the code above, but it could just as easily be imported from a spreadsheet or CSV file at this point.
