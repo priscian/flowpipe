@@ -31,7 +31,13 @@ Well, that's not quite *all* you need. Please continue reading for more details.
     * [Plot sample cell counts](#plot-sample-cell-counts)
     * [Clustering](#clustering)
     * [Select channels to use in further analyses](#select-channels-to-use-in-further-analyses)
-    * [Search for investigator-defined clusters](#search-for-investigator-defined-clusters)
+    * [Search for investigator-defined cell types](#search-for-investigator-defined-cell-types)
+    * [UMAP embedding and plots](#umap-embedding-and-plots)
+    * [Heatmaps](#heatmaps)
+    * [Differential expression analysis](#differential-expression-analysis)
+    * [Plot differential abundance](#plot-differential-abundance)
+    * [Create summary tables](#create-summary-tables)
+1. [Summary](#summary)
 1. [Notes](#notes)
 1. [References](#references)
 
@@ -100,7 +106,8 @@ image_dir <- paste(report_dir, "images", sep = "/")
 
 ```r
 ## Find paths of all FCS files in the given directory(-ies)
-fcs_files <- keystone::list_files("C:/Users/priscian/Downloads/cytometry/FlowRepository_FR-FCM-ZYDW_files",
+fcs_files <-
+  keystone::list_files("C:/Users/priscian/Downloads/cytometry/FlowRepository_FR-FCM-ZYDW_files",
   "\\.fcs$", recursive = FALSE, ignore.case = TRUE, full.names = TRUE)
 
 ## Check channel names & descriptions among FCS files
@@ -387,12 +394,14 @@ colnames(e) <- e_channels_abo %>% `[<-`(names(analysis_channels), analysis_chann
   as.vector
 ```
 
-### Search for investigator-defined clusters
+### Search for investigator-defined cell types
 
 [Recall](#find-plusminus-events-for-each-sample-for-each-channel) that events in the aggregate expression matrix have already been classified as one of the four plus-minus phenotypes (`-, d, +, ++`). These classifications allow investigators to define cell subtypes of interest based on channel description and plus-minus phenotype. Because there are four phenotypes, and because we often want a simpler binary classification, phenotypes can be combined into an inclusive binary *plus* as `+/++`, and *minus* as `-/d`; for example, CD45-*plus* is defined in code as `"cd45+/++"`, and CD64-*minus* as `"cd64-/d"`.
 
+The search for investigator-defined cell subsets happens over all the clusters discovered by PhenoGraph/FlowSOM. If two or more clusters have the same phenotype, they're merged together. The cell-subset definitions don't have to be mutually exclusive; subsets that overlap will have multiple labels that can be handled by downstream analyses.
+
 ```r
-## User-defined cell subtypes of interest
+## User-defined cell subsets of interest
 cell_subtypes <- list(
   `B cells` = c("cd45+/++", "cd19+/++"),
   `CD4+ T cells` = c("cd45+/++", "cd3+/++", "cd4+/++"),
@@ -417,6 +426,318 @@ merged_clusters <- merge_clusters(
 )
 ```
 
+A second type of search is equivalent to manual gating: each event is tested against the investigator-defined cell subsets and labeled accordingly.
+
+```r
+options(keystone_parallel = FALSE)
+
+## Find event clusters, i.e. manually gated events
+gated_clusters <- merge_clusters(
+  x = e,#[, analysis_channels],
+  clusters = cell_subtypes,
+  channels  = analysis_channels,
+  label_threshold = 0.55, # Default is 0.90
+  which_cluster_set = NULL, # Search every event for cluster definitions
+  make_gating_poster = paste(image_dir, "gated-clusters-poster", sep = "/"),
+  SUFFIX = "_gated-clusters-poster", clear_1_cache = FALSE
+)
+
+options(keystone_parallel = TRUE)
+
+## Keep separate expression matrices for merged & "manually" gated events
+attr(e, "cluster_id") <- gated_clusters$new_cluster_id
+
+em <- rlang::duplicate(e, shallow = FALSE)
+attr(em, "cluster_id") <- merged_clusters$new_cluster_id
+```
+
+### UMAP embedding and plots
+
+We use Uniform Manifold Approximation and Projection (UMAP) [[McInnes &al 2018](#mcinnes-et-al-2018)) for dimensionality reduction and visualization. *flowpipe* produces a number of UMAP plots with event points distinguished by various groupings and comparisons; these can be found in the image directory defined by the variable `image_dir`.
+
+![UMAP visualization of aggregate expression matrix colored by FlowSOM clusters.](<inst/images/008_umap-orig-clusters.png>)
+**Figure.** UMAP visualization of aggregate expression matrix colored by FlowSOM clusters.
+
+![UMAP visualization of aggregate expression matrix colored by investigator-defined clusters.](<inst/images/007_umap-B cells_Hematopoietic cells__-clusters.png>)
+**Figure.** UMAP visualization of aggregate expression matrix colored by user-defined clusters.
+
+```r
+## UMAP; results in variable 'umap'.
+umap <- make_umap_embedding(
+  x = e[, analysis_channels],
+  #seed = 667,
+  SUFFIX = "_umap", clear_1_cache = FALSE
+)
+# set.seed(666); plot(umap, col = randomcoloR::distinctColorPalette(cluster_id %>%
+#   unique %>% length)[cluster_id])
+
+## UMAP plots
+plot_common_umap_viz(
+  x = e,
+  channels = analysis_channels,
+  m = metadata,
+  umap = umap,
+  sample_name_re = sample_name_re,
+  label_clusters = TRUE,
+  image_dir = paste(image_dir, "gated-clusters-umap", sep = "/"),
+  current_image = 7,
+  save_plot = TRUE,
+  #devices = flowpipe:::graphics_devices["grDevices::pdf"],
+  use_complete_centroids = TRUE,
+  SUFFIX = "_umap-viz_gated", clear_1_cache = FALSE
+)
+
+plot_common_umap_viz(
+  x = em,
+  channels = analysis_channels,
+  m = metadata,
+  umap = umap,
+  sample_name_re = sample_name_re,
+  label_clusters = TRUE,
+  image_dir = paste(image_dir, "merged-clusters-umap", sep = "/"),
+  current_image = 8,
+  save_plot = TRUE,
+  #devices = flowpipe:::graphics_devices["grDevices::pdf"],
+  use_complete_centroids = TRUE,
+  SUFFIX = "_umap-viz-merged", clear_1_cache = FALSE
+)
+```
+
+### Heatmaps
+
+*flowpipe* produces a number of heatmaps showing channel/antigen vs. cluster, colored by median expression. In the heatmap images whose file names end in *-row*, each row (each channel) is normalized to allow relative comparison of median expression among all clusters for each channel. This mostly disregards variance of the marker expression in each cluster, but offers an overview of each cluster's composition. In the heatmaps whose file names end in *-column*, each column (each cluster) is normalized; this may help with understanding each cluster's phenotype.
+
+![Heatmap visualization of channel/antigen vs. FlowSOM cluster, colored by median expression.](<inst/images/003_heatmap_channels-gated-clusters-orig-row.png>)
+**Figure.** Heatmap visualization of channel/antigen vs. FlowSOM cluster, colored by median expression. Each row is normalized.
+
+![Heatmap visualization of channel/antigen vs. investigator-defined cluster, colored by median expression.](<inst/images/004_heatmap_channels-merged-clusters-B cells_CD4+ T cells_CD8+ T_-row.png>)
+**Figure.** Heatmap visualization of channel/antigen vs. investigator-defined cluster, colored by median expression. Each row is normalized.
+
+
+```r
+## Plot heatmaps
+cluster_median_matrices <- plot_heatmaps(
+  x = e[, analysis_channels],
+  image_dir = paste(image_dir, "heatmaps", sep = "/"),
+  current_image = 3,
+  save_plot = TRUE,
+  #devices = flowpipe:::graphics_devices["grDevices::pdf"],
+  file_path_template = expression(sprintf("%s/%03d%s-%s", image_dir,
+    current_image, "_heatmap_channels-gated-clusters",
+    fs::path_sanitize(stringr::str_trunc(as.character(which_cluster_set), 31),
+      "_"))),
+  SUFFIX = "_medians-gated", clear_1_cache = FALSE
+)
+
+cluster_median_matrices_merged <- plot_heatmaps(
+  x = em[, analysis_channels],
+  image_dir = paste(image_dir, "heatmaps", sep = "/"),
+  current_image = 4,
+  save_plot = TRUE,
+  #devices = flowpipe:::graphics_devices["grDevices::pdf"],
+  file_path_template = expression(sprintf("%s/%03d%s-%s", image_dir,
+    current_image, "_heatmap_channels-merged-clusters",
+    fs::path_sanitize(stringr::str_trunc(as.character(which_cluster_set), 31),
+      "_"))),
+  SUFFIX = "_medians-merged", clear_1_cache = FALSE
+)
+```
+
+### Differential expression analysis
+
+For statistical rigor, we can perform differential abundance analysis by cluster, based on user-supplied metadata. This analysis evaluates differential abundance in each cluster using a negative-binomial GLM (generalized linear model), comparing cell counts in each cluster for each condition relative to a control group and producing a [log₂ fold change](https://stackoverflow.com/questions/70696602/how-to-interpret-log-fold-change-log2fc-on-two-cases/70818010#70818010).
+
+```r
+> sapply(inferencem,
++   function(a) { a$sig_results %>%
++   sapply(function(b) if (is_invalid(b)) NULL else round(b, 3), simplify = FALSE) %>%
++     purrr::compact() }, simplify = FALSE) %>% purrr::compact()
+$orig
+$orig$groupIL10KO
+    logFC logCPM      F PValue   FDR
+21 -3.844 15.941 26.494  0.000 0.005
+24 -3.010 17.158 21.685  0.000 0.006
+13  2.294 15.336 17.505  0.001 0.007
+6   2.318 15.659 17.000  0.001 0.007
+1   2.208 16.235 16.394  0.001 0.007
+12  1.842 16.424 14.528  0.002 0.009
+3  -1.590 16.019 13.202  0.003 0.011
+22 -2.285 16.365 10.724  0.006 0.018
+2  -2.504 15.489 10.593  0.006 0.018
+4   1.816 16.294  9.254  0.010 0.024
+15 -2.128 15.147  7.872  0.015 0.035
+14  0.927 16.560  5.809  0.032 0.067
+8   0.878 16.069  4.612  0.052 0.099
+
+$`CD4+ T cells|CD11b+ CD64+ Myeloid cells|Non-hematopoietic cells`
+$`CD4+ T cells|CD11b+ CD64+ Myeloid cells|Non-hematopoietic cells`$groupIL10KO
+                            logFC logCPM      F PValue   FDR
+CD11b+ CD64+ Myeloid cells  1.404 16.868 20.228  0.000 0.000
+CD4+ T cells                1.228 17.558 16.001  0.000 0.001
+Non-hematopoietic cells    -0.707 18.634  5.457  0.024 0.049
+```
+**Figure.** Results of a differential abundance analysis between sample groups in clusters derived from the [Kimball &al 2018](#kimball-et-al-2018) set of FCS files.
+
+The above figure shows the significant results from evaluations of differential abundance in each cluster using a negative-binomial GLM (generalized linear model). The models compare cell counts in each cluster for each condition (the `XXX` in `groupXXX`) relative to the control group and produces a log₂ fold change. If a *significant*—i.e. its adjusted p-value < 0.05—fold change is positive, then the abundance of group `XXX` is larger than that of the control group in the cluster; if the fold change is negative, then the abundance of the control group is larger. Robust metadata variables for each sample are used as covariates in the model. For a continuous covariate, `logFC` is the log₂ fold change in abundance that results from a unit change in the covariate. If the model design matrix includes an interaction of the form `A:B`, then the estimated `logFC`s of the main effects `A` and `B` aren't directly interpretable; each must be evaluated at "interesting" levels or values of its interaction partner.
+
+This code produces the results above:
+
+```r
+## Gated clusters
+fits <- do_differential_expression(
+  x = e,
+  m = metadata_i,
+  id_map_re = sample_name_re,
+  model_formula =
+    ~ group
+)
+
+## Follow-up testing e.g.:
+# sapply(fits, edgeR::gof, simplify = FALSE) %>% print
+## N.B. The 'coef' arg of 'edgeR::glmQLFTest()' defaults to the last regressor
+##   of the design matrix, so name/number it explicitly.
+# sapply(fits, function(a) { edgeR::glmQLFTest(a, coef = 2) %>%
+#   edgeR::topTags(Inf) %>% as.data.frame %>% dplyr::filter(FDR < 0.05) },
+#   simplify = FALSE)
+
+interesting_contrasts <- list(
+  `groupIL10KO` = "groupIL10KO"
+)
+
+inference <- test_contrasts(
+  fit = fits,
+  ## These should be group var + factor level of interest, or contrasts:
+  contrasts = interesting_contrasts,
+  include_other_vars = FALSE,
+  alpha = 0.1
+)
+# sapply(inference, function(a) a$sig_results, simplify = FALSE)
+# sapply(inference, function(a) plyr::llply(a$res, function(b) b %>%
+#   edgeR::topTags(Inf) %>% as.data.frame), simplify = FALSE)
+
+## Merged clusters
+fitsm <- do_differential_expression(
+  x = em,
+  m = metadata_i,
+  id_map_re = sample_name_re,
+  model_formula =
+    ~ group
+)
+
+## Follow-up testing e.g.:
+# sapply(fitsm, edgeR::gof, simplify = FALSE) %>% print
+## N.B. The 'coef' arg of 'edgeR::glmQLFTest()' defaults to the last regressor
+##   of the design matrix, so name/number it explicitly.
+# sapply(fitsm, function(a) { edgeR::glmQLFTest(a, coef = 2) %>%
+#   edgeR::topTags(Inf) %>% as.data.frame %>% dplyr::filter(FDR < 0.05) },
+#   simplify = FALSE)
+
+inferencem <- test_contrasts(
+  fit = fitsm,
+  ## These should be group var + factor level of interest, or contrasts:
+  contrasts = interesting_contrasts,
+  include_other_vars = FALSE,
+  alpha = 0.1
+)
+# sapply(inferencem, function(a) a$sig_results, simplify = FALSE)
+# sapply(inferencem, function(a) plyr::llply(a$res, function(b) b %>%
+#   edgeR::topTags(Inf) %>% as.data.frame), simplify = FALSE)
+```
+
+### Plot differential abundance
+
+We can visualize the significant results of the differential-abundance evaluation on UMAP plots. If a cluster is redder, then the abundance of group `XXX` is larger than that of the control group in the cluster; if a cluster is bluer, then the abundance of the control group is larger.
+
+![Differential abundance in several FlowSOM clusters visualized.](<inst/images/005_diff-abundance_significant-clusters-orig.png>)
+**Figure.** Differential abundance in several FlowSOM clusters visualized.
+
+![Differential abundance in several investigator-defined clusters visualized.](<inst/images/006_diff-abundance_significant-clusters-B cells_CD4+ T cells_CD8+ T_.png>)
+**Figure.** Differential abundance in several investigator-defined clusters visualized.
+
+```r
+## Plot differential abundance (gated clusters)
+plot_differential_abundance(
+  x = e,
+  m = metadata,
+  umap = umap,
+  fit = fits,
+  contrasts = interesting_contrasts,
+  alpha = 0.1,
+  sample_name_re = sample_name_re,
+  image_dir = paste(image_dir, "diff-expression-umap/gated", sep = "/"),
+  current_image = 5,
+  save_plot = TRUE,
+  #devices = flowpipe:::graphics_devices["grDevices::pdf"],
+  SUFFIX = "_diff-abundance-gated", clear_1_cache = FALSE
+)
+
+## Plot differential abundance (merged clusters)
+plot_differential_abundance(
+  x = em,
+  m = metadata,
+  umap = umap,
+  fit = fitsm,
+  contrasts = interesting_contrasts,
+  alpha = 0.1,
+  sample_name_re = sample_name_re,
+  image_dir = paste(image_dir, "diff-expression-umap/merged", sep = "/"),
+  current_image = 6,
+  save_plot = TRUE,
+  #devices = flowpipe:::graphics_devices["grDevices::pdf"],
+  SUFFIX = "_diff-abundance-merged", clear_1_cache = FALSE
+)
+```
+
+### Create summary tables
+
+The materials provided by a *flowpipe* run include additional graphics, in both PNG and PDF versions, broken out for the various clusters—those discovered by Phenograph, merged together from the Phenograph clusters, and discovered by automatic gating. There are additional heatmaps, cluster UMAPs, and differential-expression UMAPs. The spreadsheet `cluster-summary-tables.xlsx` provides cluster info in several categories for both the merged and the gated clusters: event counts by sample, plus-minus phenotypes by channel (list and table versions), and median expression by channel.
+
+```r
+sac <- summarize_all_clusters(
+  x = e[, analysis_channels],
+  summary... = list(label_threshold = 0.55, collapse = ";"),
+  callback = expression({
+    make_external_latex_document(
+      summarize_all_clusters_latex(sac, type = "table") %>% paste(collapse = "\n\n"),
+      file_path = paste(report_dir, "cluster-phenotypes.tex", sep = "/")
+    )
+  }),
+  SUFFIX = "_sac", clear_1_cache = FALSE
+)
+## Then:
+# summarize_all_clusters_latex(sac, type = "table")
+
+sacm <- summarize_all_clusters(
+  x = em[, analysis_channels],
+  summary... = list(label_threshold = 0.55, collapse = ";"),
+  callback = expression({
+    make_external_latex_document(
+      summarize_all_clusters_latex(sac, type = "table") %>% paste(collapse = "\n\n"),
+      file_path = paste(report_dir, "cluster-phenotypes-merged.tex", sep = "/")
+    )
+  }),
+  SUFFIX = "_sacm", clear_1_cache = FALSE
+)
+## Then:
+# summarize_all_clusters_latex(sacm, type = "table")
+
+cluster_summary_tables <- export_cluster_summary(
+  details = list(
+    gated = list(fits, sac, cluster_median_matrices),
+    merged = list(fitsm, sacm, cluster_median_matrices_merged)
+  ),
+  spreadsheet_path = paste(report_dir, "cluster-summary-tables.xlsx", sep = "/"),
+  keep_pm_lists = FALSE,
+  overwrite = TRUE,
+  SUFFIX = "_cluster-summary", clear_1_cache = FALSE
+)
+```
+
+## Summary
+
+The original data set for [Kimball &al 2018](#kimball-et-al-2018) can be downloaded from [here](https://dl.dropboxusercontent.com/s/wd6g2ffstza8oc4/FlowRepository_FR-FCM-ZYDW_files.zip); the analysis shown in this wiki and its results, including a LaTeX summary report, can be downloaded in its entirely (~ 8 GB) from [here](https://www.dropbox.com/scl/fi/t2okywora7mszsccpmt2p/kimball-al-2018.zip). The combination of the original data + the code file `kimball-&al-2018.R` should allow for a complete reproduction of the results once the *flowpipe* package has been installed properly.
+
+Our favorite papers giving overviews of clustering and cyto analysis are [Keyes &al 2020](#keyes-et-al-2020), [Liu &al 2019](#liu-et-al-2019), [Kimball &al 2018](#kimball-et-al-2018), [Weber & Robinson 2016](#weber-&-robinson-2016), and [Nowicka &al 2019](#nowicka-et-al-2019), with the lattermost describing a complete analysis from start to finish. [Liu &al 2019](#liu-et-al-2019) probably provides the most comprehensive review of clustering tools so far (and it refers to several of the other papers mentioned here).
 
 ***
 
@@ -447,3 +768,12 @@ merged_clusters <- merge_clusters(
 1. <span id="bruggner-et-al-2014"/> Bruggner RV, Bodenmiller B, Dill DL, Tibshirani RJ, Nolan GP. Automated identification of stratifying signatures in cellular subpopulations. PNAS 111(26):E2770–E2777, 2014. [dx.doi.org/10.1073/pnas.1408792111](https://dx.doi.org/10.1073/pnas.1408792111)
 
 1. <span id="van-gassen-et-al-2015"/> Van Gassen S, Callebaut B, Van Helden MJ, et al. FlowSOM: Using self‐organizing maps for visualization and interpretation of cytometry data. Cytometry Part A 87(7):636–45, 2015. [dx.doi.org/10.1002/cyto.a.22625](https://dx.doi.org/10.1002/cyto.a.22625)
+
+1. <span id="mcinnes-et-al-2018"/> McInnes L, Healy J, Melville J. UMAP: Uniform manifold approximation and projection for dimension reduction. arXiv preprint, 2018.
+[dx.doi.org/10.48550/arXiv.1802.03426](https://dx.doi.org/10.48550/arXiv.1802.03426)
+
+1. <span id="keyes-et-al-2020"/> Keyes TJ, Domizi P, Lo YC, et al. A cancer biologist's primer on machine learning applications in high‐dimensional cytometry. Cytometry Part A 97(8):782–99, 2020. [dx.doi.org/10.1002/cyto.a.24158](https://dx.doi.org/10.1002/cyto.a.24158)
+
+1. <span id="weber-&-robinson-2016"/> Weber LM, Robinson MD. Comparison of clustering methods for high‐dimensional single‐cell flow and mass cytometry data. Cytometry Part A 89(12):1084–96, 2016. [dx.doi.org/10.1002/cyto.a.23030](https://dx.doi.org/10.1002/cyto.a.23030)
+
+1. <span id="nowicka-et-al-2019"/> Nowicka M, Krieg C, Crowell HL et al. CyTOF workflow: differential discovery in high-throughput high-dimensional cytometry datasets (v4). F1000Research 6:748, 2019. [dx.doi.org/10.12688/f1000research.11622.4](https://dx.doi.org/10.12688/f1000research.11622.4)
