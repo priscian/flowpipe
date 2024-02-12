@@ -117,7 +117,7 @@ cbs <- get_channels_by_sample(x = fcs_files, SUFFIX = "_cbs", clear_1_cache = FA
 
 The function `get_channels_by_sample()` compiles channel names and descriptions from the experiment's FCS files into a tabular `data.frame`; you can check this table to insure that channels are labeled correctly among all the samples. For the [Kimball &al 2018](#kimball-et-al-2018) data we're working on here, this is how the `cbs` variable looks:
 
-```r
+```rconsole
 > cbs %>% tibble::as_tibble()
 # A tibble: 62 × 10
    name         desc_01  desc_02  desc_03  desc_04  desc_05  desc_06  desc_07  desc_08  desc_09
@@ -172,7 +172,7 @@ if (any_noncommon_descs(cbs_check))
 
 Variables called `𝘹𝘹𝘹𝘹_channels` in this walkthrough are so-called [named vectors](https://devtut.github.io/r/creating-vectors.html#creating-named-vectors) in R: the vector *values* are the channel names provided in each FCS file, and the vector *names* are the channel descriptions. For example, we're using here in the walkthrough a variable called `pregating_channels`, which looks like this—
 
-```r
+```rconsole
 > pregating_channels
              <NA>              <NA>          89Y_CD45        141Pr_Gr-1       142Nd_CD11c
            "Time"    "Event_length"           "Y89Di"         "Pr141Di"         "Nd142Di"
@@ -324,7 +324,7 @@ sample_name_re <- "C(al|la)mbey.*?_\\d{2}"
 
 Our metadata here is created by the code above, but it could just as easily be imported from a spreadsheet or CSV file at this point.
 
-```r
+```rconsole
 > metadata
                                      id  group
 1         Clambey LO 110116 B6 lung1_01     B6
@@ -547,7 +547,7 @@ cluster_median_matrices_merged <- plot_heatmaps(
 
 For statistical rigor, we can perform differential abundance analysis by cluster, based on user-supplied metadata. This analysis evaluates differential abundance in each cluster using a negative-binomial GLM (generalized linear model), comparing cell counts in each cluster for each condition relative to a control group and producing a [log₂ fold change](https://stackoverflow.com/questions/70696602/how-to-interpret-log-fold-change-log2fc-on-two-cases/70818010#70818010).
 
-```r
+```rconsole
 > sapply(inferencem,
 +   function(a) { a$sig_results %>%
 +   sapply(function(b) if (is_invalid(b)) NULL else round(b, 3), simplify = FALSE) %>%
