@@ -92,6 +92,8 @@ process_config_file("./kimball-&al-2018.toml",
 
 ***
 
+![Interactively loading flowpipe on R console.](<inst/images/flowpipe-interactive-loading.png>)
+
 This section will provide a detailed walkthrough of a *flowpipe* analysis of FCS files from a mass cytometry (CyTOF) experiment. The analyst should be familiar enough with the R programming environment to call functions, to understand the variety of R data types and objects, to make changes in this walkthrough appropriate to their own experiment, and sometimes to provide ad hoc code snippets for bridging parts of a *flowpipe* analysis together. These requirements shouldn't be onerous; *flowpipe* is designed robustly to do most of the common tedious and diffcult tasks associated with cytometry data analysis.
 
 We'll use data stored on the [FlowRepository](https://flowrepository.org/) [[Spidlen &al 2012](#spidlen-et-al-2012)] from the very instructive paper "A Beginner's Guide To Analyzing and Visualizing Mass Cytometry Data" [[Kimball &al 2018](#kimball-et-al-2018)]. For convenience, we've provided this data in a single zipped archive [here](https://dl.dropboxusercontent.com/s/wd6g2ffstza8oc4/FlowRepository_FR-FCM-ZYDW_files.zip); if you wish to reproduce the walkthrough, download the archive, unzip it into a single directory[[*](#note-asterisk)], and keep track of where it's stored on your file system.
