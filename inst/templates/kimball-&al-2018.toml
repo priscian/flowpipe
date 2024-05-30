@@ -1,0 +1,149 @@
+### flowpipe configuration file
+
+## N.B. Lines starting with '#' are comments that are not processed.
+
+experiment_name = "Summary of flowpipe Analysis for Kimball et al. 2018 [dx.doi.org/10.4049/jimmunol.1701494][http://dx.doi.org/10.4049/jimmunol.1701494]"
+
+investigator = "Abigail K. Kimball, PhD"
+
+[setup]
+
+data_dir = "./data"
+key = "kimball-&al-2018" # Prefix for the results data files for each stage of the pipeline
+
+report_dir = "./report"
+
+fcs_files = '''
+C:/Users/Jim/Downloads/cytometry/FlowRepository_FR-FCM-ZYDW_files
+'''
+
+## 'type' is one of "flow", "cytof", "spectral"
+type = "cytof"
+
+[data_prep]
+
+## Stop pipeline here if true? (Errors & data can be evaluated from the command line.)
+#stop = true
+
+## If 'fcs_files' need channel renaming/reordering &or debarcoding, where to write new files?
+fcs_output_dir = "./data/fcs"
+
+## Channel *descriptions* to change for all FCS files (can be blank or missing entirely/commented);
+##   a comma should follow each 'name = value' pair
+#description_remap = { Yb176Di = "176Yb_IL-8_APC-Anti-APC" }
+
+## Channel *names* to change for all FCS files (can be blank or missing entirely/commented out);
+##   use 𝘊𝘩𝘢𝘯𝘯𝘦𝘭𝘕𝘢𝘮𝘦 = "NA" to remove channel from all FCS files
+#name_remap = { SampleID = "NA" }
+
+### CyTOF normalization
+
+## 'norm_beads' is one of "dvs" or "beta" (comment out to skip normalization)
+norm_beads = "dvs"
+
+### Debarcoding
+
+## Barcoding keys should be separated by blank lines & given a bracketed number corresponding to
+##   the order of the FCS files at this point.
+
+### Selection of analysis channels
+
+[channels]
+
+## Change 'channels_regex' to a non-default analysis-channel-selection regular expression or
+##   a list of channels/markers to keep for analysis
+#channels_regex = [ "Sm149Di", "Sm152Di", "Sm154Di" ] # Etc.
+
+### Metadata preparation
+
+## N.B. flowpipe in its interactive command-line mode can guide you through metadata creation.
+
+[metadata]
+
+table = '''
+id                                        group
+'Clambey LO 110116 B6 lung1_01'           B6
+'Clambey LO 110116 B6 lung 2_01'          B6
+'Clambey LO 110116 B6 lung 3_01'          B6
+'Clambey LO 11022016 B6 lung 4_01'        B6
+'Clambey LO 11022016 B6 lung 5_01'        B6
+'Clambey LO 110116 IL10KO lung 1_01'      IL10KO
+'Clambey LO 110116 IL10KO lung 2_01'      IL10KO
+'Calmbey LO 11022016 IL10 KO lung 3_01'   IL10KO
+'Clambey LO 11022016 IL10 KO lung 4_01'   IL10KO
+'''
+
+reference_levels = { group = "B6" }
+
+## Save metadata table to file system? If "true", writes to file & skips interactive review.
+## N.B. Set to "true" if you make changes in 'table' above (then to "false" afterwards).
+overwrite_spreadsheet = false
+
+## Impute missing metadata?
+impute = true
+
+### Compile aggregate data set from FCS files for further analysis
+
+[aggregate_data]
+
+## Stop pipeline here if true? (Errors & data can be evaluated from the command line.)
+#stop = true
+
+## Should obvious outlier intensity values in the individual FCS files be removed?
+remove_outliers = true
+
+## Should this step process its constituent files in parallel if possible?
+parallel_processing = true
+
+max_events_per_sample = +inf # 'inf' means use all events from a sample, else use finite number
+
+[pregating]
+
+## CyTOF example:
+'intact cells' = { Ir191Di = "between quantile(0.25), quantile(0.95)", compare = "&", Ir193Di = "between quantile(0.25), quantile(0.95)" }
+'intact singlets' = { Event_length = "< quantile(0.90)", compare = "&", Ir191Di = true }
+'live cells' = { Pt195Di = "< quantile(0.90)", compare = "&", Ir191Di = true }
+
+[metaclustering]
+
+stop = true
+
+do_metaclustering = true
+
+Rphenograph = { Rphenograph_k = 15 }
+
+[clustering]
+
+#Rphenograph = { Rphenograph_k = 50 }
+FlowSOM = { FlowSOM_k = 25, estimate_cluster_count = false }
+#Xshift = { num_nearest_neighbors = 40 }
+
+label_threshold = 0.55
+
+[cell_subtypes] ## User-defined cell subtypes of interest
+
+'B cells' = [ "cd45+/++", "cd19+/++" ]
+'CD4+ T cells' =  [ "cd45+/++", "cd3+/++", "cd4+/++" ]
+'CD8+ T cells' = [ "cd45+/++", "cd3+/++", "cd8+/++" ]
+'Natural killer cells' = [ "cd45+/++", "nkp46+/++" ]
+'CD11c+ Myeloid cells' = [ "cd11c+/++" ]
+'CD11b+ CD64+ Myeloid cells' = [ "cd11b+/++", "cd64+/++" ]
+'CD11b+ CD64- Myeloid cells' = [ "cd11b+/++", "cd64-/d" ]
+'Hematopoietic cells' = [ "cd45+/++", "cd3-/d", "nkp46-/d", "cd19-/d", "cd4-/d",
+  "cd8-/d", "cd11b-/d", "cd11c-/d", "cd64-/d" ]
+'Non-hematopoietic cells' = [ "cd45-/d" ]
+
+## Should this step conduct its cell-subset search in parallel if possible?
+parallel_processing = false # Assumes that no cell subset will be called "parallel_processing"
+
+[differential_expression]
+
+model_formula = "~ group"
+
+interesting_contrasts = { 'groupIL10KO' = "groupIL10KO" }
+
+alpha = 0.1
+
+[cluster_fcs]
+
+#directory = "C:/Users/Jim/Box/FCS Files/report/prelim/cluster-fcs"

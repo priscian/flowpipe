@@ -34,12 +34,15 @@ summarize_metadata <- function(
 
 summarize_all_clusters_single <- function(
   x, # "pmm" object from 'get_expression_subset()'
+  cluster_set,
   which_cluster_set = 1, # If 'attr(x, "cluster_id")' is matrix, pick a column by name or number
   summary... = list()
 )
 {
-  clusterId <- attr(x, "cluster_id")
-
+  if (is_invalid(cluster_set))
+    clusterId <- attr(x, "cluster_id")
+  else
+    clusterId <- cluster_set
   if (is.matrix(clusterId))
     clusterId <- clusterId[, which_cluster_set] %>% drop
   ## 'na.omit()' for when the cluster assignments incl. NAs:
@@ -51,6 +54,7 @@ summarize_all_clusters_single <- function(
       summaryArgs <- list(
         x = x,
         n = a,
+        cluster_set = cluster_set,
         which_cluster_set = which_cluster_set,
         merged_labels = list(`-/d` = c("-", "d"), `+/++` = c("+", "++")),
         as_list = TRUE
@@ -95,12 +99,18 @@ summarize_all_clusters_single <- function(
 #' @export
 summarize_all_clusters <- function(
   x,
+  cluster_set,
   which_cluster_set = NULL,
   ...,
   callback = NULL
 )
 {
-  clusterId <- attr(x, "cluster_id")
+  if (missing(cluster_set)) {
+    clusterId <- attr(x, "cluster_id")
+    cluster_set <- NULL
+  } else {
+    clusterId <- cluster_set
+  }
 
   if (is.null(which_cluster_set)) {
     which_cluster_set <- 1
@@ -112,7 +122,7 @@ summarize_all_clusters <- function(
     function(a)
     {
       #print(a)
-      summarize_all_clusters_single(x, which_cluster_set = a, ...)
+      summarize_all_clusters_single(x, cluster_set = cluster_set, which_cluster_set = a, ...)
     }, simplify = FALSE)
 
   keystone::poly_eval(callback)

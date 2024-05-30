@@ -11,19 +11,27 @@ cohens_h <- function (p1, p2)
 do_differential_expression_single <- function(
   x, # "pmm" object from 'get_expression_subset()'
   m, # metadata data frame
+  cluster_set,
   which_cluster_set = 1, # If 'attr(x, "cluster_id")' is matrix, pick a column by name or number
   model_formula,
-  id_map_re = ".*",
+  id_map_re = NULL, # Was 'id_map_re = ".*"'
   metadata_id_var = "id",
   glmQLFit... = list()
 )
 {
   # id_map <- structure(attr(x, "id_map"),
   #   .Names = names(attr(x, "id_map")) %>% basename %>% stringr::str_extract(id_map_re))
-  id_map <- make_sample_id_map(x, id_map_re)
+  if (!is_invalid(id_map_re)) {
+    id_map <- make_sample_id_map(x, id_map_re)
+  } else {
+    id_map <- m %>% { structure(.$sample_id, .Names = .$id) }
+  }
   ids <- names(id_map)[x[, "id"] %>% as.vector]
 
-  clusterId <- attr(x, "cluster_id")
+  if (is_invalid(cluster_set))
+    clusterId <- attr(x, "cluster_id")
+  else
+    clusterId <- cluster_set
   if (is.matrix(clusterId))
     clusterId <- clusterId[, which_cluster_set] %>% drop
 
@@ -109,11 +117,17 @@ do_differential_expression_single <- function(
 #' @export
 do_differential_expression <- function(
   x,
+  cluster_set,
   which_cluster_set = NULL,
   ...
 )
 {
-  clusterId <- attr(x, "cluster_id")
+  if (missing(cluster_set)) {
+    clusterId <- attr(x, "cluster_id")
+    cluster_set <- NULL
+  } else {
+    clusterId <- cluster_set
+  }
 
   if (is.null(which_cluster_set)) {
     which_cluster_set <- 1
@@ -125,7 +139,8 @@ do_differential_expression <- function(
     function(a)
     {
       print(a)
-      do_differential_expression_single(x, which_cluster_set = a, ...)
+      do_differential_expression_single(x, cluster_set = cluster_set,
+        which_cluster_set = a, ...)
     }, simplify = FALSE) %>% purrr::compact()
 
   fits
@@ -172,7 +187,8 @@ test_contrasts_single <- function(
     })
 
   res_sig <- plyr::llply(res, function(a) a %>% edgeR::topTags(Inf, ...) %>% as.data.frame %>%
-    dplyr::filter(dplyr::across(tidyselect::last_col(), ~ . < alpha)))
+    #dplyr::filter(across(tidyselect::last_col(), ~ . < alpha))) # 'across()' deprecated here!
+    dplyr::filter(if_all(tidyselect::last_col(), ~ . < alpha)))
 
   inference <- list(results = res, sig_results = res_sig)
 

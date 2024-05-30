@@ -1,19 +1,19 @@
 Package: flowpipe
 Title: Flow & Mass Cytometry Analysis Pipeline
-Version: 1.0.1
+Version: 1.2.0
 Authors@R: person("Jim", "Java", email = "james.j.java@gmail.com", role = c("aut", "cre"),
   comment = c(ORCID = "0000-0002-8254-3177"))
 Description: Flow & mass cytometry analysis pipeline.
-Depends: R (>= 3.5.0), magrittr, tribe
+Depends: R (>= 4.0.0), magrittr, tribe
 Suggests: knitr, pander, testthat
 #: N.B. I previously used "cytofkit2" instead of the more focused "Rphenograph" below.
 Imports: tictoc, fs, rrapply,
   flowCore, flowStats, cytoMEM, CATALYST, premessa, cydar, cytofkit2, debarcode,
   SingleCellExperiment,
   ConsensusClusterPlus, cluster, FlowSOM, uwot, Rtsne, igraph,
-  cowplot, gginnards, RColorBrewer, scales, randomcoloR, pdftools,
+  gridGraphics, cowplot, gginnards, RColorBrewer, scales, randomcoloR, pdftools,
   matrixStats, MASS, edgeR,
-  keystone
+  RcppTOML, blogdown, rmarkdown, keystone
 Remotes: github::priscian/flowpipe, github::priscian/keystone, github::priscian/debarcode,
   github::JinmiaoChenLab/Rphenograph, github::JinmiaoChenLab/cytofkit2, github::cytolab/cytoMEM,
   github::jmeskas/flowCL

@@ -279,11 +279,12 @@ make_umap_embedding <- function(
 
 plot_common_umap_viz_single <- function(
   x, # "pmm" object from 'get_expression_subset()'
+  cluster_set,
   which_cluster_set = 1, # Column no. or name
   channels = TRUE,
   m = NULL, # metadata; if NULL, plot will be skipped
   umap,
-  sample_name_re = "^.*$",
+  sample_name_re = NULL, # Was 'sample_name_re = "^.*$"'
   plot_palette = randomcoloR::distinctColorPalette,
   na.value = scales::alpha("grey95", 0.3), # Default is "grey50"; NA for transparent
   labels = ~ (function(x) { ifelse(is.na(x), "other", x) })(.x),
@@ -317,16 +318,23 @@ plot_common_umap_viz_single <- function(
   #def_par <- par(no.readonly = TRUE)#; dev.off()
 
   ## Make plotting data set
-  cluster_id <- attr(x, "cluster_id")
-  if (is.matrix(cluster_id)) {
-    cluster_id <- cluster_id[, which_cluster_set]
+  if (is_invalid(cluster_set))
+    clusterId <- attr(x, "cluster_id")
+  else
+    clusterId <- cluster_set
+  if (is.matrix(clusterId)) {
+    clusterId <- clusterId[, which_cluster_set]
   }
   # sample_id_map <- structure(attr(x, "id_map"),
   #   .Names = names(attr(x, "id_map")) %>% basename %>% stringr::str_extract(sample_name_re))
-  sample_id_map <- make_sample_id_map(x, sample_name_re)
+  if (!is_invalid(sample_name_re)) {
+    sample_id_map <- make_sample_id_map(x, sample_name_re)
+  } else {
+    sample_id_map <- m %>% { structure(.$sample_id, .Names = .$id) }
+  }
   sample_id <- names(sample_id_map)[x[, "id"]]
   d <- keystone::dataframe(UMAP1 = umap[, 1], UMAP2 = umap[, 2], x[, channels],
-    cluster_id = cluster_id %>% as.factor,
+    clusterId = clusterId %>% as.factor,
     sample_id = sample_id %>% as.factor
   )
   if (!is.null(m)) {
@@ -351,20 +359,20 @@ plot_common_umap_viz_single <- function(
 
   cluster_centroids <- d %>% as.data.frame %>%
     dplyr::select(-c(channels %>% as.vector)) %>%
-    dplyr::group_by(cluster_id) %>%
+    dplyr::group_by(clusterId) %>%
     dplyr::group_modify(
       .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
     dplyr::ungroup()
 
-  #g3 <- ggplot2::ggplot(dplyr::sample_n(d, 10000), ggplot2::aes(x = UMAP1, y = UMAP2, color = cluster_id)) +
-  g3 <- ggplot2::ggplot(d, ggplot2::aes(x = UMAP1, y = UMAP2, color = cluster_id)) +
+  #g3 <- ggplot2::ggplot(dplyr::sample_n(d, 10000), ggplot2::aes(x = UMAP1, y = UMAP2, color = clusterId)) +
+  g3 <- ggplot2::ggplot(d, ggplot2::aes(x = UMAP1, y = UMAP2, color = clusterId)) +
     ggplot2::geom_point(size = 0.8) + # default: 'shape = 16'
     ggplot2::theme_bw() +
-    ggplot2::scale_color_manual(values = plot_palette(length(unique(cluster_id))), na.value = na.value, labels = labels) +
+    ggplot2::scale_color_manual(values = plot_palette(length(unique(clusterId))), na.value = na.value, labels = labels) +
     ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = 4), ncol = 3))
   if (label_clusters) {
     g3 <- g3 +
-      ggplot2::geom_text(data = cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = cluster_id), color = "black", size = 3)
+      ggplot2::geom_text(data = cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = clusterId), color = "black", size = 3)
   }
 
   if (save_plot) {
@@ -401,7 +409,7 @@ plot_common_umap_viz_single <- function(
 
   sample_cluster_centroids <- d %>% as.data.frame %>%
     dplyr::select(-c(channels %>% as.vector)) %>%
-    dplyr::group_by(sample_id, cluster_id, .drop = FALSE) %>%
+    dplyr::group_by(sample_id, clusterId, .drop = FALSE) %>%
     dplyr::group_modify(
       .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
     dplyr::ungroup()
@@ -415,7 +423,7 @@ plot_common_umap_viz_single <- function(
 
   if (label_clusters) {
     g3a <- g3a +
-      ggplot2::geom_text(data = sample_cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = cluster_id), color = "black", size = 3)
+      ggplot2::geom_text(data = sample_cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = clusterId), color = "black", size = 3)
   }
 
   if (save_plot) {
@@ -451,7 +459,7 @@ plot_common_umap_viz_single <- function(
 
   group_cluster_centroids <- d %>% as.data.frame %>%
     dplyr::select(-c(channels %>% as.vector)) %>%
-    dplyr::group_by(group_id, cluster_id, .drop = FALSE) %>%
+    dplyr::group_by(group_id, clusterId, .drop = FALSE) %>%
     dplyr::group_modify(
       .f = ~ calc_centroids(.x, .y), .keep = TRUE) %>%
     dplyr::ungroup()
@@ -465,7 +473,7 @@ plot_common_umap_viz_single <- function(
 
   if (label_clusters) {
     g3b <- g3b +
-      ggplot2::geom_text(data = group_cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = cluster_id), color = "black", size = 3)
+      ggplot2::geom_text(data = group_cluster_centroids, ggplot2::aes(x = UMAP1, y = UMAP2, label = clusterId), color = "black", size = 3)
   }
 
   if (save_plot) {
@@ -596,11 +604,17 @@ plot_common_umap_viz_single <- function(
 #' @export
 plot_common_umap_viz <- function(
   x,
+  cluster_set,
   which_cluster_set = NULL,
   ...
 )
 {
-  clusterId <- attr(x, "cluster_id")
+  if (missing(cluster_set)) {
+    clusterId <- attr(x, "cluster_id")
+    cluster_set <- NULL
+  } else {
+    clusterId <- cluster_set
+  }
 
   if (is.null(which_cluster_set)) {
     which_cluster_set <- 1
@@ -612,7 +626,8 @@ plot_common_umap_viz <- function(
   keystone::pl_ply(which_cluster_set,
     function(a)
     {
-      plot_common_umap_viz_single(x, which_cluster_set = a, cluster_plot_only = clusterPlotOnly, ...)
+      plot_common_umap_viz_single(x, cluster_set = cluster_set, which_cluster_set = a,
+        cluster_plot_only = clusterPlotOnly, ...)
 
       ## Only make group & sample plots once
       if (!clusterPlotOnly)
@@ -628,7 +643,7 @@ plot_cell_counts <- function(
   x, # "pmm" object from 'get_expression_subset()'
   pmm_files, # Vector of file paths of "pmm" objects, but could also be FCS files
   m, # metadata
-  sample_name_re = "^.*$",
+  sample_name_re = NULL,# Was 'sample_name_re = "^.*$"',
   plot_palette = randomcoloR::distinctColorPalette,
   image_dir = NULL,
   current_image = 0,
@@ -650,18 +665,25 @@ plot_cell_counts <- function(
 
   cellCounts <- count_events(pmm_files)
   cell_counts <- cellCounts
-  names(cell_counts) <- tools::file_path_sans_ext(basename(names(cell_counts))) %>%
-    stringr::str_extract(sample_name_re) %>% rename_duplicates
+  if (!is_invalid(sample_name_re)) {
+    names(cell_counts) <- tools::file_path_sans_ext(basename(names(cell_counts))) %>%
+      stringr::str_extract(sample_name_re) %>% rename_duplicates
+  } else {
+    names(cell_counts) <- m$id[m$sample_id] %>% rename_duplicates
+  }
 
   ggdf <- keystone::dataframe(sample_id = names(cell_counts), cell_counts = as.numeric(cell_counts))
   ## Add metadata info to 'ggdf'
   ggdf <- dplyr::left_join(ggdf, m %>% dplyr::select(id, group), by = c(sample_id = "id")) %>%
     dplyr::mutate(group = as.factor(group))
-  tge <- structure(
-    attr(x, "total_gated_events"),
-    .Names = tools::file_path_sans_ext(basename(names(attr(x, "total_gated_events")))) %>%
+  tge <- attr(x, "total_gated_events")
+  if (!is_invalid(sample_name_re)) {
+    names(tge) <- tools::file_path_sans_ext(basename(names(attr(x, "total_gated_events")))) %>%
       stringr::str_extract(sample_name_re) %>% rename_duplicates
-  )
+  } else {
+    names(tge) <- m$id[m$sample_id] %>% rename_duplicates
+  }
+
   ggdf <- dplyr::left_join(
     ggdf,
     structure(
@@ -751,6 +773,8 @@ plot_cell_counts <- function(
 
 plot_heatmaps_single <- function(
   x, # "pmm" object from 'get_expression_subset()'
+  m, # metadata
+  cluster_set,
   which_cluster_set = 1, # If 'attr(x, "cluster_id")' is matrix, pick a column by name or number
   channels = TRUE,
   image_dir = NULL,
@@ -779,16 +803,19 @@ plot_heatmaps_single <- function(
   ## mostly disregards variance of the marker expression in each cluster, but offers an overview of each cluster's composition.
   sub_matrix <- x[, channels]
 
-  cluster_id <- attr(x, "cluster_id")
-  if (is.matrix(cluster_id))
-    cluster_id <- cluster_id[, which_cluster_set] %>% drop
+  if (is_invalid(cluster_set))
+    clusterId <- attr(x, "cluster_id")
+  else
+    clusterId <- cluster_set
+  if (is.matrix(clusterId))
+    clusterId <- clusterId[, which_cluster_set] %>% drop
 
   cluster_matrix <- NULL
-  for (i in sort(unique(cluster_id))) {
-    cluster_matrix <- rbind(cluster_matrix, matrixStats::colMedians(sub_matrix[cluster_id == i, , drop = FALSE], na.rm = TRUE))
+  for (i in sort(unique(clusterId))) {
+    cluster_matrix <- rbind(cluster_matrix, matrixStats::colMedians(sub_matrix[clusterId == i, , drop = FALSE], na.rm = TRUE))
   }
   colnames(cluster_matrix) <- channels
-  rownames(cluster_matrix) <- sort(unique(cluster_id))
+  rownames(cluster_matrix) <- sort(unique(clusterId))
   #par(mar = c(2, 2, 2, 2)) # Prob. doesn't do anything here
 
   if (any(dim(cluster_matrix) < 2))
@@ -874,11 +901,17 @@ plot_heatmaps_single <- function(
 #' @export
 plot_heatmaps <- function(
   x,
+  cluster_set,
   which_cluster_set = NULL,
   ...
 )
 {
-  clusterId <- attr(x, "cluster_id")
+  if (missing(cluster_set)) {
+    clusterId <- attr(x, "cluster_id")
+    cluster_set <- NULL
+  } else {
+    clusterId <- cluster_set
+  }
 
   if (is.null(which_cluster_set)) {
     which_cluster_set <- 1
@@ -889,7 +922,7 @@ plot_heatmaps <- function(
   cluster_matrices <- keystone::psapply(which_cluster_set,
     function(a)
     {
-      plot_heatmaps_single(x, which_cluster_set = a, ...)
+      plot_heatmaps_single(x, cluster_set = cluster_set, which_cluster_set = a, ...)
     }, simplify = FALSE)
 
   cluster_matrices
@@ -901,9 +934,10 @@ plot_differential_abundance_single <- function(
   m, # metadata
   umap,
   fit, contrasts,
+  cluster_set,
   which_cluster_set = 1, # If 'attr(x, "cluster_id")' is matrix, pick a column by name or number
   alpha = 0.05,
-  sample_name_re = "^.*$",
+  sample_name_re = NULL, # Was 'sample_name_re = "^.*$"'
   results_column = "logFC",
   plot_palette = randomcoloR::distinctColorPalette,
   na.value = scales::alpha("grey95", 0.3), # Default is "grey50"; NA for transparent
@@ -925,17 +959,25 @@ plot_differential_abundance_single <- function(
 
   ## Visualize the log2 fold change in clusters with a significant differential abundance between the two conditions
 
-  cluster_id <- attr(x, "cluster_id")
-  if (is.matrix(cluster_id))
-    cluster_id <- cluster_id[, which_cluster_set] %>% drop
-  cluster_id <- cluster_id  %>% as.character
+  if (is_invalid(cluster_set))
+    clusterId <- attr(x, "cluster_id")
+  else
+    clusterId <- cluster_set
+  if (is.matrix(clusterId))
+    clusterId <- clusterId[, which_cluster_set] %>% drop
+  clusterId <- clusterId  %>% as.character
 
   results_column <-
     structure(rep(results_column, length.out = length(contrasts)), .Names = names(contrasts))
 
-  id_map <- make_sample_id_map(x, sample_name_re)
+  if (!is_invalid(sample_name_re)) {
+    id_map <- make_sample_id_map(x, sample_name_re)
+  } else {
+    id_map <- m %>% { structure(.$sample_id, .Names = .$id) }
+  }
   ids <- names(id_map)[x[, "id"]]
-  m1 <- m %>% dplyr::select(1, group) %>%
+  # m1 <- m %>% dplyr::select(1, group) # Too specific a 'select()'ion!
+  m1 <- m %>% dplyr::select("id", group) %>% # This requires that the metadata column be named "id"
     dplyr::rename(id = 1)
   u <- sapply(names(contrasts),
     function(a)
@@ -949,18 +991,18 @@ plot_differential_abundance_single <- function(
       res_tags <- do.call(edgeR::glmQLFTest, glmQLFTestArgs) %>%
         edgeR::topTags(Inf, ...) %>%
         as.data.frame %>%
-        tibble::rownames_to_column("cluster_id")
+        tibble::rownames_to_column("clusterId")
       alphaCol <- tail(colnames(res_tags), 1)
 
       rc <- results_column[a] %>% as.vector
       if (is.numeric(rc))
         rc <- colnames(res_tags)[rc]
 
-      diffexp_df <- structure(keystone::dataframe(cluster_id, umap),
-        .Names = c("cluster_id", paste0("UMAP", seq(NCOL(umap))))) %>%
-        dplyr::left_join(res_tags %>% dplyr::select(cluster_id, !!rc, tidyselect::last_col()),
-          by = "cluster_id") %>%
-        dplyr::rename(cluster = "cluster_id", "logFC" := rc) %>%
+      diffexp_df <- structure(keystone::dataframe(clusterId, umap),
+        .Names = c("clusterId", paste0("UMAP", seq(NCOL(umap))))) %>%
+        dplyr::left_join(res_tags %>% dplyr::select(clusterId, !!rc, tidyselect::last_col()),
+          by = "clusterId") %>%
+        dplyr::rename(cluster = "clusterId", "logFC" := rc) %>%
         dplyr::mutate(id = ids) %>%
         dplyr::left_join(m1, by = "id") %>%
         dplyr::mutate(
@@ -1039,11 +1081,17 @@ plot_differential_abundance_single <- function(
 plot_differential_abundance <- function(
   x,
   fits,
+  cluster_set,
   which_cluster_set = NULL,
   ...
 )
 {
-  clusterId <- attr(x, "cluster_id")
+  if (missing(cluster_set)) {
+    clusterId <- attr(x, "cluster_id")
+    cluster_set <- NULL
+  } else {
+    clusterId <- cluster_set
+  }
 
   if (is.null(which_cluster_set)) {
     which_cluster_set <- 1
@@ -1057,7 +1105,8 @@ plot_differential_abundance <- function(
       plyr::l_ply(fits,
         function(fit)
         {
-          plot_differential_abundance_single(x, fit = fit, which_cluster_set = a, ...)
+          plot_differential_abundance_single(x, fit = fit, cluster_set = cluster_set,
+            which_cluster_set = a, ...)
         })
     })
 

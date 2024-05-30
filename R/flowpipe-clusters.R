@@ -17,8 +17,8 @@ get_optimal_cluster_count <- function(
     reps = 100,
     pItem = 0.8,
     pFeature = 1,
-    clusterAlg = "hc",
-    distance = "pearson",
+    clusterAlg = "hc", distance = "pearson",
+    # clusterAlg = "km", distance = "euclidean",
     title = "consensus-clusters",
     innerLinkage = "complete",
     seed = seed,
@@ -107,7 +107,7 @@ make_clusters <- function(
   ## FlowSOM
   FlowSOM_k = 40, estimate_cluster_count = TRUE,
   ## X-shift
-  VorteX_path = "./VorteX.jar",
+  VorteX_path = system.file("java/VorteX.jar", package = "flowpipe"),
   num_nearest_neighbors = 40,
   Xshift_command = "java -Xmx64G -cp \"%s\" standalone.Xshift -NUM_NEAREST_NEIGHBORS=%d",
   importConfig... = list(),
@@ -154,11 +154,12 @@ make_clusters <- function(
       importConfigArgs <- utils::modifyList(importConfigArgs, importConfig..., keep.null = TRUE)
 
       ## N.B. Change this to a package file in directory "extdata" when the time comes:
-      ic <- readLines(system.file("inst/templates/importConfig.txt", package = "flowpipe"))
+      ic <- readLines(system.file("templates/importConfig.txt", package = "flowpipe"))
       plyr::l_ply(names(importConfigArgs),
         function(a)
         {
-          ic <<- stringr::str_replace_all(ic, paste0("%", a, "%"), importConfigArgs[[a]] %>% as.character)
+          ic <<- stringr::str_replace_all(ic, paste0("%", a, "%"), importConfigArgs[[a]] %>%
+            as.character)
         })
 
       ## Set up a temporary workspace
@@ -172,7 +173,8 @@ make_clusters <- function(
       writeLines(ic, paste(d, "importConfig.txt", sep = "/"))
       writeLines(normalizePath(p1, mustWork = FALSE), paste(d, "fcsFileList.txt", sep = "/"))
 
-      XshiftCommand <- sprintf(Xshift_command, normalizePath(VorteX_path, mustWork = FALSE), num_nearest_neighbors)
+      XshiftCommand <- sprintf(Xshift_command, normalizePath(VorteX_path, mustWork = FALSE),
+        num_nearest_neighbors)
       currentWorkingDir <- getwd()
       setwd(d)
       #if (!dir.exists(o)) dir.create(o, recursive = TRUE) # Make sure output directory exists
@@ -322,6 +324,7 @@ make_metaclusters <- function(
 summary.pmm <- function(
   x, # "pmm" object from 'get_expression_subset()'
   n = NULL, # Cluster numbers: NULL or TRUE for all, FALSE for every event
+  cluster_set,
   which_cluster_set = 1, # If 'attr(x, "cluster_id")' is matrix, pick a column by name or number
   channels = colnames(x),
   merged_labels = list(
@@ -337,7 +340,12 @@ summary.pmm <- function(
   as_list = TRUE
 )
 {
-  clusterId <- attr(x, "cluster_id")
+  if (is_invalid(cluster_set)) {
+    clusterId <- attr(x, "cluster_id")
+    cluster_set <- NULL
+  } else {
+    clusterId <- cluster_set
+  }
 
   byEvent <- FALSE
   if (is.logical(n)) {
@@ -348,7 +356,7 @@ summary.pmm <- function(
     n <- NULL
   }
 
-  if (is.null(attr(x, "cluster_id"))) {
+  if (is.null(clusterId)) {
     clusterId <- sprintf("%d", seq(NROW(x)))
     stop("PMM object 'x' has no 'cluster_id' attribute")
   }
@@ -657,6 +665,7 @@ merge_clusters <- function(
   clusters, # Named list of cell subsets
   channels,
   label_threshold,
+  cluster_set,
   which_cluster_set = 1, # Column no. or name; NULL or FALSE to set off by-event search
   search... = list(),
   verbose = TRUE,
@@ -668,12 +677,19 @@ merge_clusters <- function(
   save_plot_fun = grDevices::cairo_pdf, save_plot... = list(onefile = TRUE)
 )
 {
-  origClusterId <- attr(x, "cluster_id")
+  if (missing(cluster_set)) {
+    clusterId <- attr(x, "cluster_id")
+    cluster_set <- NULL
+  } else {
+    clusterId <- cluster_set
+  }
+  origClusterId <- clusterId
 
   byEvent <- FALSE
   if (is.null(which_cluster_set) || (is.logical(which_cluster_set) && !which_cluster_set)) {
     ## N.B. The "event" clusters must be run though 'sprintf()' to prevent exponentiation > 399999.
-    attr(x, "cluster_id") <- sprintf("%d", seq(NROW(x)))
+    #attr(x, "cluster_id") <- sprintf("%d", seq(NROW(x)))
+    clusterId <- cluster_set <- sprintf("%d", seq(NROW(x)))
     which_cluster_set <- 1
     byEvent <- TRUE
   } else if (is.logical(which_cluster_set) && which_cluster_set) {
@@ -682,7 +698,7 @@ merge_clusters <- function(
 
   searchArgs <- list(
     x = x,
-    summary... = list(which_cluster_set = which_cluster_set)
+    summary... = list(cluster_set = cluster_set, which_cluster_set = which_cluster_set)
   )
   if (!missing(channels))
     searchArgs$summary...$channels <- channels
@@ -952,7 +968,7 @@ merge_clusters <- function(
 
   cc1 <- cc %>% purrr::compact()
 
-  clusterId <- attr(x, "cluster_id")
+  #clusterId <- attr(x, "cluster_id")
   if (is.matrix(clusterId))
     clusterId <- clusterId[, which_cluster_set]
 

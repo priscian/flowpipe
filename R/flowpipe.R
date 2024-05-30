@@ -70,7 +70,7 @@ find_plus_minus_by_channel <- function(
           multisectArgs <- list(
             x = b %>% `attr<-`("main_title", sprintf("%s|%s", sampleName, colNames[i])),
             bins = bins,
-            plot_cutoff = TRUE,
+            plot_cutoff = FALSE,
             random_seed = 666
           )
           multisectArgs <- utils::modifyList(multisectArgs, multisect...)

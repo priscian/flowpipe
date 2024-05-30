@@ -2,17 +2,17 @@
 get_channels_by_sample <- function(
   x, # Vector of directory & file paths
   keep_sans_desc = expression({
-    l <- sapply(l,
-      function(a)
-        ## When 'desc' parameter is missing, copy 'name' in:
-        a %>% dplyr::mutate(desc = dplyr::case_when(is.na(desc) ~ name, TRUE ~ desc)), simplify = FALSE)
-  })
+    d$channels_by_sample_full_desc %<>%
+      dplyr::mutate(across(starts_with("desc"), ~ dplyr::coalesce(.x, replace = .data$name)))
+  }),
+  verbose = TRUE
 )
 {
   l0 <- keystone::psapply(x,
     function(a)
     {
-      ff <- flowCore::read.FCS(a, transformation = FALSE, truncate_max_range = FALSE)
+      ff <- flowCore::read.FCS(a, transformation = FALSE, truncate_max_range = FALSE,
+        which.lines = 1)
       p <- flowCore::pData(flowCore::parameters(ff))
 
       p
@@ -21,20 +21,20 @@ get_channels_by_sample <- function(
   ## Are all the channels given in the same order? If no, 'flowCore::read.flowSet()' might fail.
   ## Decide yes or no by transitivity of equality.
   if (length(l0) > 1) {
-    commonChannelOrder <- sapply(l0, function(a){ a$name }, simplify = FALSE) %>% {
+    commonChannelOrder <- sapply(l0, function(a) { a$name }, simplify = FALSE) %>% {
       flit <- .
       seq(length(flit)) %>% utils::combn(m = 2) %>% keystone::dataframe() %>% as.list %>%
-        sapply(function(b) { all(flit[[b[1]]] == flit[[b[2]]]) }) %>% all
+        sapply(function(b) { if (length(flit[[b[1]]]) != length(flit[[b[2]]])) return (FALSE);
+          all(flit[[b[1]]] == flit[[b[2]]]) }) %>% all
     }
-    if (!commonChannelOrder)
-      warning("Some samples have their channels ordered differently from the other samples.", immediate. = TRUE)
+    if (!commonChannelOrder && verbose)
+      warning("Some samples have their channels ordered differently from the other samples.",
+        immediate. = TRUE)
   }
 
-  l <- rlang::duplicate(l0, shallow = FALSE)
-  ## N.B. Use expression 'keep_sans_desc' to make changes to 'l' before continuing.
-  keystone::poly_eval(keep_sans_desc)
+  #l <- rlang::duplicate(l0, shallow = FALSE)
 
-  d <- sapply(list(channels_by_sample = l0, channels_by_sample_full_desc = l),
+  d <- sapply(list(channels_by_sample = l0),
     function(x) {
       i <- 1
       d <- c(
@@ -54,13 +54,19 @@ get_channels_by_sample <- function(
         })
 
       d %>% dplyr::mutate(across(.cols = everything(), .fns = as.vector))
-    }, simplify = FALSE)
+    }, simplify = FALSE) %>% `$<-`("channels_by_sample_full_desc", .$channels_by_sample)
 
-  channelNamesCounts <- apply(dplyr::select(d$channels_by_sample_full_desc, -name), 1, table, simplify = FALSE) %>% unlist
-  if (!all(channelNamesCounts == NCOL(d$channels_by_sample_full_desc) - 1))
+  ## N.B. Use expression 'keep_sans_desc' to make changes to
+  ##   'd$channels_by_sample_full_desc' before continuing.
+  keystone::poly_eval(keep_sans_desc)
+
+  channelNamesCounts <- apply(dplyr::select(d$channels_by_sample_full_desc, -name), 1, table,
+    simplify = FALSE) %>% unlist
+  if (!all(channelNamesCounts == NCOL(d$channels_by_sample_full_desc) - 1) && verbose)
     warning("Some channels may have multiple descriptions among samples. Run 'premessa::paneleditor_GUI()' to fix them.",
       immediate. = TRUE)
 
+  ## N.B. Should I randomly reorder multiple names for a single channel having the same frequency?
   desc_freq_by_channel <- apply(dplyr::select(d$channels_by_sample, -name), 1,
     function(a)
     {
@@ -78,6 +84,7 @@ get_channels_by_sample <- function(
     #path_map = keystone::dataframe(desc = tail(names(d$channels_by_sample), -1), path = x),
     path_map = structure(x, .Names = tail(names(d$channels_by_sample), -1)),
     desc_freq_by_channel = desc_freq_by_channel,
+    common_channels = commonChannelOrder,
     #channel_names_counts = channelNamesCounts,
     desc_remap = desc_remap,
     channels_by_sample_full_desc = d$channels_by_sample_full_desc
@@ -187,7 +194,8 @@ rename_fcs_parameters_name_desc <- function(
   name_remap = NULL, # Named vector of channels to rename, NA to remove channel
   output_dir = NULL,
   outfile_suffix = "_renamed",
-  reorder_columns = TRUE # Put columns in each file in common order?
+  reorder_columns =  # Put columns in each file in common order?
+    !attr(channels_by_sample, "common_channels")
 )
 {
   cbs <- channels_by_sample
@@ -269,7 +277,6 @@ rename_fcs_parameters_name_desc <- function(
       path
     }, simplify = TRUE)
 
-
   if (reorder_columns) {
     reorder_fcs_common_columns(pp)
   }
@@ -280,7 +287,8 @@ rename_fcs_parameters_name_desc <- function(
 
 #' @export
 split_pmm_by_cluster <- function(
-  l, # Named list of "pmm" objects from 'get_expression_subset()'
+  x, # "pmm" object from 'get_expression_subset()'
+  l, # Named list of cluster sets
   fcs_dir = NULL,
   export_id_map = FALSE,
   default_colname = "orig",
@@ -291,11 +299,11 @@ split_pmm_by_cluster <- function(
     function(a)
     {
       ## Split "pmm" matrix into multiple 'flowCore::flowFrames' by cluster
-      cid <- attr(l[[a]], "cluster_id")
-      if (is.null(cid))
+      cid <- l[[a]]
+      if (is_invalid(cid))
         stop("PMM object has no 'cluster_id' attribute")
 
-      eff <- flowCore::flowFrame(exprs = l[[a]] %>% unclass)
+      eff <- flowCore::flowFrame(exprs = x %>% unclass)
       #p <- flowCore::pData(flowCore::parameters(eff))
 
       if (!is.matrix(cid))
@@ -307,7 +315,7 @@ split_pmm_by_cluster <- function(
           b <- cid[, bc]
           lff <- flowCore::split(eff[!is.na(b), ], b[!is.na(b)])
 
-          if (!is.null(fcs_dir)) {
+          if (!is_invalid(fcs_dir)) {
             plyr::l_ply(seq_along(lff),
               function(bb)
               {
@@ -327,7 +335,7 @@ split_pmm_by_cluster <- function(
 
       if (export_id_map) {
         export_id_map(
-          x = l[[a]],
+          x = x,
           export_path = paste(fcs_dir, a, a %_% "-id-map.xlsx", sep = "/")
         )
       }
@@ -402,4 +410,71 @@ count_events <- function(
 
       rv
     }, ...)
+}
+
+
+#' @export
+as_flowFrame <- function(x, ...)
+  UseMethod("as_flowFrame")
+
+
+#'@export
+as_flowFrame.default <- function(x, ...)
+{
+  as_flowFrame.matrix(x, ...)
+}
+
+
+#'@export
+as_flowFrame.matrix <- function(x, na.rm = FALSE, name, desc, ...)
+{
+  x <- data.matrix(x)
+
+  if (missing(desc))
+    desc = colnames(x)
+
+  if (missing(name)) {
+    name = colnames(x)
+  } else {
+    colnames(x) <- name
+  }
+
+  pData <- keystone::dataframe(
+    name = name,
+    desc = desc,
+    range = apply(apply(x, 2, range, na.rm = na.rm), 2, keystone::diff_),
+    minRange = apply(x, 2, min, na.rm = na.rm),
+    maxRange = apply(x, 2, max, na.rm = na.rm)
+  )
+
+  ff <- new(getClass(structure("flowFrame", package = "flowCore")),
+    exprs = x,
+    parameters = Biobase::AnnotatedDataFrame(pData)
+  )
+
+  ff
+}
+
+## usage:
+# d <- structure(rnorm(500), dim = c(50L, 10L), dimnames = list(NULL, LETTERS[1:10]))
+# ff <- as_flowFrame(d)
+
+
+#'@export
+as_flowFrame.data.frame <- function(x, ...)
+{
+  as_flowFrame.matrix(x, ...)
+}
+
+
+#'@export
+as_flowFrame.character <- function(x, ...)
+{
+  d <- rio::import(x)
+
+  ff <- as_flowFrame.matrix(d, ...)
+
+  flowCore::keyword(ff) <- list(`$FIL` = basename(x))
+
+  ff
 }

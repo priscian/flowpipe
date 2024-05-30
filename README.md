@@ -70,6 +70,27 @@ Here's the outline of a typical *flowpipe* workflow:
 
 ## Annotated example analysis
 
+*N.B.* While the step-by-step code walkthrough below allows a great deal of fine control of a *flowpipe* analysis, most analyses can now be guided by a simple [TOML](https://toml.io/en/v1.0.0) configuration file that requires much less programming savvy of the analyst. The [Kimball &al 2018](#kimball-et-al-2018) data of the walkthrough leads to the same results via [this TOML configuration file](inst/templates/kimball-&al-2018.toml) and a bit of R code to process it:
+
+```r
+options(keystone_parallel = TRUE) # Allow parallel processing via "future" package
+#options(flowpipe_interactive_off = TRUE) # Turn off the interactive "wizard"
+
+# setwd("your/preferred/working/directory")
+
+if (!require("flowpipe")) {
+  remotes::install_github("priscian/flowpipe")
+  library(flowpipe)
+}
+
+#process_config_file()
+process_config_file("./kimball-&al-2018.toml",
+  storage_env = globalenv(),
+)
+```
+
+***
+
 This section will provide a detailed walkthrough of a *flowpipe* analysis of FCS files from a mass cytometry (CyTOF) experiment. The analyst should be familiar enough with the R programming environment to call functions, to understand the variety of R data types and objects, to make changes in this walkthrough appropriate to their own experiment, and sometimes to provide ad hoc code snippets for bridging parts of a *flowpipe* analysis together. These requirements shouldn't be onerous; *flowpipe* is designed robustly to do most of the common tedious and diffcult tasks associated with cytometry data analysis.
 
 We'll use data stored on the [FlowRepository](https://flowrepository.org/) [[Spidlen &al 2012](#spidlen-et-al-2012)] from the very instructive paper "A Beginner's Guide To Analyzing and Visualizing Mass Cytometry Data" [[Kimball &al 2018](#kimball-et-al-2018)]. For convenience, we've provided this data in a single zipped archive [here](https://dl.dropboxusercontent.com/s/wd6g2ffstza8oc4/FlowRepository_FR-FCM-ZYDW_files.zip); if you wish to reproduce the walkthrough, download the archive, unzip it into a single directory[[*](#note-asterisk)], and keep track of where it's stored on your file system.
@@ -91,12 +112,15 @@ options(keystone_parallel = TRUE)
 # setwd("your/preferred/working/directory")
 data_dir <- "./data"
 if (!dir.exists(data_dir)) dir.create(data_dir, recursive = TRUE)
-.cm <- memoise::cache_filesystem(path = data_dir)
 
 if (!require("flowpipe")) {
   remotes::install_github("priscian/flowpipe")
   library(flowpipe)
 }
+
+
+.cm <- memoise::cache_filesystem(path = data_dir)
+memoise_all_package_functions(key = "kimball-&al-2018")
 
 report_dir <- "./report"
 image_dir <- paste(report_dir, "images", sep = "/")
@@ -444,11 +468,7 @@ gated_clusters <- merge_clusters(
 
 options(keystone_parallel = TRUE)
 
-## Keep separate expression matrices for merged & "manually" gated events
 attr(e, "cluster_id") <- gated_clusters$new_cluster_id
-
-em <- rlang::duplicate(e, shallow = FALSE)
-attr(em, "cluster_id") <- merged_clusters$new_cluster_id
 ```
 
 ### UMAP embedding and plots
@@ -474,13 +494,14 @@ umap <- make_umap_embedding(
 ## UMAP plots
 plot_common_umap_viz(
   x = e,
+  cluster_set = gated_clusters$new_cluster_id,
   channels = analysis_channels,
   m = metadata,
   umap = umap,
   sample_name_re = sample_name_re,
   label_clusters = TRUE,
   image_dir = paste(image_dir, "gated-clusters-umap", sep = "/"),
-  current_image = 7,
+  current_image = 3,
   save_plot = TRUE,
   #devices = flowpipe:::graphics_devices["grDevices::pdf"],
   use_complete_centroids = TRUE,
@@ -488,14 +509,15 @@ plot_common_umap_viz(
 )
 
 plot_common_umap_viz(
-  x = em,
+  x = e,
+  cluster_set = merged_clusters$new_cluster_id,
   channels = analysis_channels,
   m = metadata,
   umap = umap,
   sample_name_re = sample_name_re,
   label_clusters = TRUE,
   image_dir = paste(image_dir, "merged-clusters-umap", sep = "/"),
-  current_image = 8,
+  current_image = 4,
   save_plot = TRUE,
   #devices = flowpipe:::graphics_devices["grDevices::pdf"],
   use_complete_centroids = TRUE,
@@ -518,8 +540,10 @@ plot_common_umap_viz(
 ## Plot heatmaps
 cluster_median_matrices <- plot_heatmaps(
   x = e[, analysis_channels],
+  m = metadata,
+  cluster_set = gated_clusters$new_cluster_id,
   image_dir = paste(image_dir, "heatmaps", sep = "/"),
-  current_image = 3,
+  current_image = 5,
   save_plot = TRUE,
   #devices = flowpipe:::graphics_devices["grDevices::pdf"],
   file_path_template = expression(sprintf("%s/%03d%s-%s", image_dir,
@@ -530,9 +554,11 @@ cluster_median_matrices <- plot_heatmaps(
 )
 
 cluster_median_matrices_merged <- plot_heatmaps(
-  x = em[, analysis_channels],
+  x = e[, analysis_channels],
+  m = metadata,
+  cluster_set = merged_clusters$new_cluster_id,
   image_dir = paste(image_dir, "heatmaps", sep = "/"),
-  current_image = 4,
+  current_image = 6,
   save_plot = TRUE,
   #devices = flowpipe:::graphics_devices["grDevices::pdf"],
   file_path_template = expression(sprintf("%s/%03d%s-%s", image_dir,
@@ -587,6 +613,7 @@ This code produces the results above:
 fits <- do_differential_expression(
   x = e,
   m = metadata_i,
+  cluster_set = gated_clusters$new_cluster_id,
   id_map_re = sample_name_re,
   model_formula =
     ~ group
@@ -617,8 +644,9 @@ inference <- test_contrasts(
 
 ## Merged clusters
 fitsm <- do_differential_expression(
-  x = em,
+  x = e,
   m = metadata_i,
+  cluster_set = merged_clusters$new_cluster_id,
   id_map_re = sample_name_re,
   model_formula =
     ~ group
@@ -662,6 +690,7 @@ plot_differential_abundance(
   umap = umap,
   fit = fits,
   contrasts = interesting_contrasts,
+  cluster_set = gated_clusters$new_cluster_id,
   alpha = 0.1,
   sample_name_re = sample_name_re,
   image_dir = paste(image_dir, "diff-expression-umap/gated", sep = "/"),
@@ -673,11 +702,12 @@ plot_differential_abundance(
 
 ## Plot differential abundance (merged clusters)
 plot_differential_abundance(
-  x = em,
+  x = e,
   m = metadata,
   umap = umap,
   fit = fitsm,
   contrasts = interesting_contrasts,
+  cluster_set = merged_clusters$new_cluster_id,
   alpha = 0.1,
   sample_name_re = sample_name_re,
   image_dir = paste(image_dir, "diff-expression-umap/merged", sep = "/"),
@@ -708,7 +738,8 @@ sac <- summarize_all_clusters(
 # summarize_all_clusters_latex(sac, type = "table")
 
 sacm <- summarize_all_clusters(
-  x = em[, analysis_channels],
+  x = e[, analysis_channels],
+  cluster_set = merged_clusters$new_cluster_id,
   summary... = list(label_threshold = 0.55, collapse = ";"),
   callback = expression({
     make_external_latex_document(
