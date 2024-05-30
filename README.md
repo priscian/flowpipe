@@ -14,6 +14,8 @@ library(flowpipe)
 library(flowpipe)
 ```
 
+![Interactively loading flowpipe on R console.](<inst/images/flowpipe-interactive-loading.png>)
+
 Well, that's not quite *all* you need. Please continue reading for more details.
 
 ## Table of Contents
@@ -91,8 +93,6 @@ process_config_file("./kimball-&al-2018.toml",
 ```
 
 ***
-
-![Interactively loading flowpipe on R console.](<inst/images/flowpipe-interactive-loading.png>)
 
 This section will provide a detailed walkthrough of a *flowpipe* analysis of FCS files from a mass cytometry (CyTOF) experiment. The analyst should be familiar enough with the R programming environment to call functions, to understand the variety of R data types and objects, to make changes in this walkthrough appropriate to their own experiment, and sometimes to provide ad hoc code snippets for bridging parts of a *flowpipe* analysis together. These requirements shouldn't be onerous; *flowpipe* is designed robustly to do most of the common tedious and diffcult tasks associated with cytometry data analysis.
 
