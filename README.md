@@ -5,7 +5,8 @@ Flow & mass cytometry analysis pipeline
 The *flowpipe* R package is fairly easy to set up. In an R session:
 ```r
 install.packages("remotes") # If necessary.
-Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS = "true") # https://github.com/r-lib/remotes#environment-variables
+Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS = "true") # Probably unnecessary now. See:
+## https://github.com/r-lib/remotes#environment-variables
 remotes::install_github("priscian/flowpipe")
 library(flowpipe)
 
