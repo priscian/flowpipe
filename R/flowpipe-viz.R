@@ -133,6 +133,7 @@ visualize_channels <- function(
 
   if (length(gating_channels) == 1) { # Density plot
     plot.densityArgs <- list(
+      ## N.B. I might need to check for zero events before this point!
       x = stats::density(x[event_mask, gating_channels[1]]),
       main = "",
       xlim = c(min(0, x[event_mask, gating_channels[1]]), max(x[event_mask, gating_channels[1]])),

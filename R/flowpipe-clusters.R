@@ -555,9 +555,17 @@ search.pmm <- function(
   mm <- lapply(allQueries,
     function(a)
     {
-      sapply(a,
-        function(b) { adist(b, names(template), fixed = TRUE) %>% which.min }, simplify = TRUE) %>%
-        { names(template)[.] }
+      ## 'adist()' fails here sometimes:
+      # sapply(a,
+      #   function(b) { adist(b, names(template), fixed = TRUE) %>% which.min }, simplify = TRUE) %>%
+      #   { names(template)[.] }
+      r <- stringr::str_subset(names(template), stringr::regex(sprintf("^(%s)$",
+        paste(rex::escape(a), collapse = "|")), ignore_case = TRUE))
+
+      if (length(r) != length(a))
+        warning("Some phenotypes may be misspecified in cell subsets list", immediate. = TRUE)
+
+      r
     })
   tests <- lapply(mm,
     function(a)

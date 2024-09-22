@@ -557,7 +557,7 @@ The metadata spreadsheet has been generated & can be found here:
   ## arcsinh scale parameter
   if (is_invalid(b)) {
     b <- switch(type,
-      spectral = 1/150, # same as FCM, but this is a guess
+      spectral = 1/3000, # den Braanker &al 2021
       cytof = 1/8,
       1/150 # default, FCM
     )
@@ -700,9 +700,13 @@ The metadata spreadsheet has been generated & can be found here:
 
 
   ### Add sample IDs in attributes of aggregate 'e' matrix to metadata
-  sampleId <- adist(names(attributes(e)$id_map), metadata$id) %>% apply(1, which.min)
-  if (any(duplicated(sampleId)))
-    error("Metadata contains non-unique IDs or IDs incorrectly matched to sample file names")
+  ## N.B. This can fail in the case of ties:
+  # sampleId <- adist(names(attributes(e)$id_map), metadata$id) %>% apply(1, which.min)
+  flit <- sapply(metadata$id, function(a) stringr::str_which(names(attributes(e)$id_map), a),
+    simplify = FALSE)
+  if (any(sapply(flit, length)) > 1)
+    stop("Metadata contains non-unique IDs or IDs incorrectly matched to sample file names")
+  sampleId <- attributes(e)$id_map[flit %>% unlist(use.names = FALSE)] %>% as.vector
 
   metadata %<>% dplyr::mutate(sample_id = sampleId, .before = 1)
   metadata_i <- rlang::duplicate(metadata, shallow = FALSE)
@@ -857,6 +861,8 @@ The metadata spreadsheet has been generated & can be found here:
 
   if (is_invalid(label_threshold))
     label_threshold <- 0.55
+  merged_labels <- i$clustering$merged_labels
+
   cell_subtype_parallel_processing <- i$cell_subtypes$parallel_processing
   i$cell_subtypes$parallel_processing <- NULL
 
@@ -878,8 +884,15 @@ The metadata spreadsheet has been generated & can be found here:
       make_gating_poster = paste(image_dir, "gated-clusters-poster", sep = "/"),
       SUFFIX = "_gated-clusters-poster", clear_1_cache = clear_1_cache
     )
+    if (!is_invalid(merged_labels))
+      merge_clustersArgs$search...$summary...$merged_labels <- merged_labels
     merge_clustersArgs <-
       utils::modifyList(merge_clustersArgs, merge_clusters..., keep.null = TRUE)
+
+    if (!is_invalid(merge_clustersArgs$search...$summary...$merged_labels))
+      merged_labels <- merge_clustersArgs$search...$summary...$merged_labels
+    if (is_invalid(merged_labels))
+      merged_labels <- formals(summary.pmm)$merged_labels %>% eval
 
     do_stop_check(merge_clustersArgs, stop_var = "STOP")
     gated_clusters <- do.call(merge_clusters, merge_clustersArgs)
@@ -941,7 +954,7 @@ The metadata spreadsheet has been generated & can be found here:
   #sapply(fits, function(a) { edgeR::glmQLFTest(a, coef = 2) %>% edgeR::topTags(Inf) %>% as.data.frame %>% dplyr::filter(FDR < 0.05) }, simplify = FALSE)
 
   interesting_contrasts <- i$differential_expression$interesting_contrasts
-  if (is_invalid(interesting_contrasts))
+  if (is_invalid(interesting_contrasts) && is_invalid(test_contrasts...$contrasts))
     stop("No contrasts supplied for differential analysis")
   interesting_contrasts %<>% sapply(
     function(a)
@@ -998,6 +1011,12 @@ The metadata spreadsheet has been generated & can be found here:
     #sapply(inferencem, function(a) plyr::llply(a$res, function(b) b %>% edgeR::topTags(Inf) %>% as.data.frame), simplify = FALSE)
   }
 
+  ## Borrowed from 'test_contrasts()':
+  interesting_contrasts <- local({
+    fit <- fits[[1]]
+    sapply(test_contrastsArgs$contrasts, function(b) keystone::poly_eval(b), simplify = FALSE)
+  })
+
   ####################
   ### Plots & reporting
   ####################
@@ -1028,7 +1047,7 @@ The metadata spreadsheet has been generated & can be found here:
   summarize_all_clustersArgs <- list(
     x = e[, analysis_channels],
     cluster_set = cluster_sets$gated,
-    summary... = list(label_threshold = 0.55, collapse = ";"),
+    summary... = list(merged_labels = merged_labels, label_threshold = 0.55, collapse = ";"),
     callback = expression({
       make_external_latex_document(
         summarize_all_clusters_latex(sac, type = "table") %>% paste(collapse = "\n\n"),

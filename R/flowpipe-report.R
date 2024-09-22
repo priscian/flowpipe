@@ -151,6 +151,42 @@ summarize_all_clusters_latex_single <- function(
   xxx <- dplyr::mutate_all(xx, Hmisc::latexTranslate, greek = TRUE) %>%
     dplyr::rename_with(Hmisc::latexTranslate, greek = TRUE) %>%
     dplyr::mutate_at(-1, stringr::str_replace_all, pattern = "-", replacement = "--")
+
+  ## Replace unicode Greek characters (this is hacky, I know):
+  greek_replacements <- keystone::cards('
+    letter name
+    α alpha
+    β beta
+    γ gamma
+    δ delta
+    ε epsilon
+    ζ zeta
+    η eta
+    θ theta
+    ι iota
+    κ kappa
+    λ lambda
+    μ mu
+    ν nu
+    ξ xi
+    ο omicron
+    π pi
+    ρ rho
+    σ sigma
+    τ tau
+    υ upsilon
+    φ phi
+    χ chi
+    ψ psi
+    ω omega
+  ') %>% dplyr::mutate(name = sprintf("$\\\\%s$", name))
+  plyr::a_ply(greek_replacements, 1,
+    function(a)
+    {
+      xxx <<- xxx %>% dplyr::mutate(across(where(is.character),
+        ~ stringr::str_replace_all(.x, a$letter, a$name)))
+    })
+
   i <- as.numeric(xxx$cluster)
   if (any(is.na(i))) i <- xxx$cluster
   xxx <- dplyr::arrange(xxx, i)
@@ -317,6 +353,8 @@ export_cluster_summary <- function(
       sapply(seq_along(dupIndex),
         function(j) sprintf("%s%01d", stringr::str_trunc(sheetNames[dupIndex[j]], 30, ellipsis = ""), j))
   }
+  ## Fix possible "error: Worksheet name cannot contain invalid characters: '[ ] : * ? / \'":
+  sheetNames %<>% stringr::str_replace_all("(\\[|\\]|\\:|\\*|\\?|\\/|\\\\)", "_")
   rio::export(l %>% `names<-`(sheetNames), spreadsheet_path, ...)
 
   l
